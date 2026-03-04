@@ -772,7 +772,7 @@ wheels = [
 
 [[package]]
 name = "lakebench"
-version = "0.14.0"
+version = "1.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "fsspec" },
@@ -805,8 +805,7 @@ sail = [
     { name = "deltalake", version = "1.2.1", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version == '3.9.*' and extra == 'extra-9-lakebench-sail') or (extra == 'extra-9-lakebench-sail' and extra == 'extra-9-lakebench-spark')" },
     { name = "deltalake", version = "1.3.3", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.10' and extra == 'extra-9-lakebench-sail') or (extra == 'extra-9-lakebench-sail' and extra == 'extra-9-lakebench-spark')" },
     { name = "pyarrow", marker = "python_full_version >= '3.9'" },
-    { name = "pysail", version = "0.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version == '3.9.*' and extra == 'extra-9-lakebench-sail') or (extra == 'extra-9-lakebench-sail' and extra == 'extra-9-lakebench-spark')" },
-    { name = "pysail", version = "0.5.1", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.10' and extra == 'extra-9-lakebench-sail') or (extra == 'extra-9-lakebench-sail' and extra == 'extra-9-lakebench-spark')" },
+    { name = "pysail", marker = "python_full_version >= '3.10'" },
     { name = "pyspark", version = "4.0.2", source = { registry = "https://pypi.org/simple" }, extra = ["connect"], marker = "(python_full_version == '3.9.*' and extra == 'extra-9-lakebench-sail') or (extra == 'extra-9-lakebench-sail' and extra == 'extra-9-lakebench-spark')" },
     { name = "pyspark", version = "4.1.1", source = { registry = "https://pypi.org/simple" }, extra = ["connect"], marker = "(python_full_version >= '3.10' and extra == 'extra-9-lakebench-sail') or (extra == 'extra-9-lakebench-sail' and extra == 'extra-9-lakebench-spark')" },
 ]
@@ -854,7 +853,7 @@ requires-dist = [
     { name = "pyarrow", marker = "python_full_version >= '3.9' and extra == 'spark'", specifier = ">=15.0.0" },
     { name = "pyarrow", marker = "python_full_version >= '3.9' and extra == 'tpcds-datagen'", specifier = ">=15.0.0" },
     { name = "pyarrow", marker = "python_full_version >= '3.10' and extra == 'daft'", specifier = ">=15.0.0" },
-    { name = "pysail", marker = "python_full_version >= '3.9' and extra == 'sail'", specifier = ">=0.4.2" },
+    { name = "pysail", marker = "python_full_version >= '3.10' and extra == 'sail'", specifier = ">=0.5.2" },
     { name = "pyspark", marker = "python_full_version >= '3.9' and extra == 'spark'", specifier = ">=3.5.0,<4.0.0" },
     { name = "pyspark", extras = ["connect"], marker = "python_full_version >= '3.9' and extra == 'sail'", specifier = ">=4.0.0" },
     { name = "sparkmeasure", marker = "extra == 'sparkmeasure'", specifier = "==0.24.0" },
@@ -1420,41 +1419,15 @@ wheels = [
 
 [[package]]
 name = "pysail"
-version = "0.4.6"
+version = "0.5.2"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version == '3.9.*'",
-]
-sdist = { url = "https://files.pythonhosted.org/packages/3c/4c/8056c0e57d98539f35a1afec070c41bb63d1a6237656af52b70f0f12131f/pysail-0.4.6.tar.gz", hash = "sha256:5f5c2d46a092256d04faa7f6c00e830a30f62fd9a4e1c8e0237984ba1c12bb6a", size = 1465045, upload-time = "2026-01-13T11:07:04.463Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/10/75/f297216ee76d184d06257dd4fc755b81bc12cc7457366623b492015f93cd/pysail-0.5.2.tar.gz", hash = "sha256:1a54aecd07f9a78c4f1177dafe699747e588a0e0adfa021934d5f437878d239b", size = 1770331, upload-time = "2026-03-02T14:10:46.915Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/55/90/1e0f51cc03a32aa491b09158894a7640a664f1dfc6753b034eaa52f25e8d/pysail-0.4.6-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:5f545d00a34c4f0d2101fe38b1f276f14e4d935f79d4d257910bd059ed05dbfd", size = 48807055, upload-time = "2026-01-13T11:06:44.997Z" },
-    { url = "https://files.pythonhosted.org/packages/f1/0d/fa81abeccdc7367d848aeee433e3e2e6b6bfa06d80b88f10e764a3523b74/pysail-0.4.6-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:b5868d032a3c9cee69b1b7ae1916171d3d2bc1e1d3d08af51685aa9de069a5dc", size = 44823494, upload-time = "2026-01-13T11:06:48.529Z" },
-    { url = "https://files.pythonhosted.org/packages/4b/d2/7501af80e17693e54477d2570ed74f0bee2300186c5591000bcc90900cff/pysail-0.4.6-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:7ef5aab8913cd5b4f5491b872ef6739172f277f95b554b58648051c8e4e66682", size = 50009509, upload-time = "2026-01-13T11:06:51.913Z" },
-    { url = "https://files.pythonhosted.org/packages/c6/b5/cc2c82a3071dffe5aa7b8be8208134e31019eef400916ccaf091577e463e/pysail-0.4.6-cp38-abi3-manylinux_2_24_aarch64.whl", hash = "sha256:e1ddcbebaecee11a3ba0b64e00beac0f07d0babf484468a31f9b3107a61ab268", size = 46455177, upload-time = "2026-01-13T11:06:54.886Z" },
-    { url = "https://files.pythonhosted.org/packages/2e/cd/905b1e2f51cdb3c9a0bd36ab5af7e754a8d4f3d8712dcc73e28a0051a571/pysail-0.4.6-cp38-abi3-win_amd64.whl", hash = "sha256:2e792ad60814c1c6c67d8f89829aa85987b32f4f58571c9ce84891158b1d2174", size = 54250923, upload-time = "2026-01-13T11:06:58.164Z" },
-    { url = "https://files.pythonhosted.org/packages/03/42/e8297322640ffc9a683a2bd82aa90e314cb6e0359bdd80ce6dde7662c421/pysail-0.4.6-pp39-pypy39_pp73-manylinux_2_24_aarch64.whl", hash = "sha256:1ef86d2413d64314ed36774f660712b70017db333e276e9ce7d55a40cfa826a9", size = 46454901, upload-time = "2026-01-13T11:07:01.92Z" },
-]
-
-[[package]]
-name = "pysail"
-version = "0.5.1"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.14' and sys_platform == 'win32'",
-    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'win32'",
-    "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.11' and python_full_version < '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.10.*'",
-]
-sdist = { url = "https://files.pythonhosted.org/packages/0f/f6/e815f71e4a02b8f89fcd7a4190def56b4af0e5f5e8f6ba615ff1fb3a7630/pysail-0.5.1.tar.gz", hash = "sha256:0b10f142edf56e76d2d2068a90efea8a3490fab1b18f8e201f0594118a6586ee", size = 1696175, upload-time = "2026-02-15T14:32:42.694Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/05/33/dd237ea53bd4bde7b74eee6099d7c96f87e3b7e73d4dd673908ec66f237a/pysail-0.5.1-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:4f443ee86e8313532a0a037495f6533cf5a23a75229d127b142850776d732e0c", size = 53481808, upload-time = "2026-02-15T14:32:26.727Z" },
-    { url = "https://files.pythonhosted.org/packages/9c/e9/26642cfa4bdaa1b7ab181d7d9a571eb576428030df2bb1a9b6973732083e/pysail-0.5.1-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:66d87538a21511a6e5a77b714e20d842bf3d46c774564cf9a9e62c1928390dd4", size = 49253249, upload-time = "2026-02-15T14:32:30.632Z" },
-    { url = "https://files.pythonhosted.org/packages/1e/1f/91d7e34cebe1fb32f978b30fcc0272c80bd8878f7509a34f52b8cfcf9885/pysail-0.5.1-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:db6aa6fd2e0bc133f425b868bbe67674030afa0a4672155cf791a4416ec19cb0", size = 54845940, upload-time = "2026-02-15T14:32:34.236Z" },
-    { url = "https://files.pythonhosted.org/packages/6e/6c/a876aefba74976c2825efda29460b97f96a1f498a620109195482b8c186f/pysail-0.5.1-cp38-abi3-manylinux_2_24_aarch64.whl", hash = "sha256:10891378dc8be72562406ea0ffc61d31c1f9d6c61858bcf72da098545352d956", size = 50980375, upload-time = "2026-02-15T14:32:37.436Z" },
-    { url = "https://files.pythonhosted.org/packages/94/b8/8c3b8a10590ceaa90e3e7b4b93ca7cfb2bbf142128a838e9bc7415aead07/pysail-0.5.1-cp38-abi3-win_amd64.whl", hash = "sha256:1db022cf4b7e3a06262b011472fc4d00bde7af13a785fd245d1c65608b23edb6", size = 59428028, upload-time = "2026-02-15T14:32:40.44Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/e1/18431483c18fb7345c0f5b1085f4e573e27ef4996944e159c6e5289ee922/pysail-0.5.2-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:2cddbe71e8d905accea11eedc7bd3304758042f7d702c67b85747e83d9b09cc3", size = 53190485, upload-time = "2026-03-02T14:10:28.47Z" },
+    { url = "https://files.pythonhosted.org/packages/da/ec/003be6cf7dceb1370bb461868ef431e319fc9fb2faac6fa506fc6d8b0f8b/pysail-0.5.2-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:ec0b6423c4ce66299f71464c6f4cd89e5d0531853142823ef807e360ad26d569", size = 48990950, upload-time = "2026-03-02T14:10:32.163Z" },
+    { url = "https://files.pythonhosted.org/packages/de/0b/1529e52feaa73a398acc55d0ebb54ad87f0103ea6a148ebcc3cf12d109b1/pysail-0.5.2-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:cb95f44ac6eb742c13f8f7765a3036cad94aaab11addc85dc263fd581f3a24a8", size = 54554756, upload-time = "2026-03-02T14:10:36.292Z" },
+    { url = "https://files.pythonhosted.org/packages/8c/e4/47ecba429733dd557a5ff53b043bbafdcb4cf3d11d67f52780d2e3b07949/pysail-0.5.2-cp38-abi3-manylinux_2_24_aarch64.whl", hash = "sha256:e9ed2cc83da13bfc0c4f4d65ff58c0ccc01187c1b71cb2db5b988b7781e6ae31", size = 50724648, upload-time = "2026-03-02T14:10:40.199Z" },
+    { url = "https://files.pythonhosted.org/packages/91/fd/d7a8ed5a27fd17496b7d8386ceb11bb1e3d543826540906181e5077344e1/pysail-0.5.2-cp38-abi3-win_amd64.whl", hash = "sha256:a17af8e3824cf228f298c94489d6c87d1dbe0a786973db54e7eb41dcf78b3027", size = 59183644, upload-time = "2026-03-02T14:10:44.135Z" },
 ]
 
 [[package]]
