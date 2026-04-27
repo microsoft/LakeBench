@@ -3,13 +3,23 @@ from datetime import datetime
 from contextlib import contextmanager
 from ..engines.spark import Spark
 
+def _has_spark_context(engine):
+    """Check if engine has a usable sparkContext (not available in Databricks Connect)."""
+    if not isinstance(engine, Spark):
+        return False
+    try:
+        engine.spark.sparkContext
+        return True
+    except Exception:
+        return False
+
 @contextmanager
 def timer(phase: str = "Elapsed time", test_item: str = '', engine: str = None):
     if not hasattr(timer, "results"):
         timer.results = []
 
     iteration = sum(1 for result in timer.results if result[0] == phase and result[1] == test_item) + 1
-    
+
     class TimerContext:
         def __init__(self, phase: str, test_item: str, iteration: int):
             self.execution_telemetry = {}
@@ -17,7 +27,8 @@ def timer(phase: str = "Elapsed time", test_item: str = '', engine: str = None):
 
     timer_context = TimerContext(phase, test_item, iteration)
 
-    if isinstance(engine, Spark):
+    has_sc = _has_spark_context(engine)
+    if has_sc:
         engine.spark.sparkContext.setJobDescription(timer_context.context_decorator)
         if engine.spark_measure_telemetry:
             engine.capture_metrics.begin()
@@ -46,7 +57,7 @@ def timer(phase: str = "Elapsed time", test_item: str = '', engine: str = None):
         if not isinstance(timer_context.execution_telemetry, dict):
             timer_context.execution_telemetry = {}
 
-        if isinstance(engine, Spark):
+        if has_sc:
             engine.spark.sparkContext.setJobDescription(None)
             if engine.spark_measure_telemetry:
                 engine.capture_metrics.end()

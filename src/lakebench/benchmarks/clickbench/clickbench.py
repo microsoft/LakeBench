@@ -7,6 +7,7 @@ from ...engines.duckdb import DuckDB
 from ...engines.daft import Daft
 from ...engines.polars import Polars
 from ...engines.sail import Sail
+from ...engines.livy import Livy
 
 from .engine_impl.spark import SparkClickBench
 from .engine_impl.duckdb import DuckDBClickBench
@@ -57,6 +58,7 @@ class ClickBench(_LoadAndQuery):
         Spark: SparkClickBench,
         DuckDB: DuckDBClickBench,
         Sail: SailClickBench,
+        Livy: None,
         Polars: PolarsClickBench,
         Daft: DaftClickBench,
     }

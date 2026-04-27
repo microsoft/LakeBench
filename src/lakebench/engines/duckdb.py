@@ -66,6 +66,31 @@ class DuckDB(BaseEngine):
         # Drop the in-memory table
         self.duckdb.sql(f"DROP TABLE IF EXISTS {table_name}")
 
+    def get_table_columns(self, table_name: str) -> list:
+        """Return column names for a DuckDB table/view."""
+        rows = self.duckdb.sql(f"DESCRIBE {table_name}").fetchall()
+        return [row[0] for row in rows]
+
+    def list_databases(self) -> list:
+        """List databases attached to the DuckDB connection (catalogs/schemas)."""
+        try:
+            rows = self.duckdb.sql(
+                "SELECT DISTINCT schema_name FROM information_schema.schemata "
+                "WHERE schema_name NOT IN ('information_schema', 'pg_catalog')"
+            ).fetchall()
+            return [r[0] for r in rows]
+        except Exception:
+            rows = self.duckdb.sql("SHOW DATABASES").fetchall()
+            return [r[0] for r in rows]
+
+    def list_tables(self, database: str) -> list:
+        """List tables in `database` (treated as a DuckDB schema)."""
+        rows = self.duckdb.sql(
+            f"SELECT table_name FROM information_schema.tables "
+            f"WHERE table_schema = '{database}'"
+        ).fetchall()
+        return [r[0] for r in rows]
+
     def load_parquet_to_delta(self, parquet_folder_uri: str, table_name: str, table_is_precreated: bool = False, context_decorator: Optional[str] = None):
         arrow_df = self.duckdb.sql(f""" FROM parquet_scan('{posixpath.join(parquet_folder_uri, '*.parquet')}') """).record_batch()
         self.deltars.write_deltalake(

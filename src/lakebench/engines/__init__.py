@@ -8,3 +8,6 @@ from .fabric_spark import FabricSpark
 from .synapse_spark import SynapseSpark
 from .hdi_spark import HDISpark
 from .sail import Sail
+from .spark_connect import SparkConnect
+from .databricks import Databricks
+from .livy import Livy

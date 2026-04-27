@@ -281,6 +281,31 @@ class Spark(BaseEngine):
 
         return cluster_config
     
+    def get_table_columns(self, table_name: str) -> list:
+        """Return column names for a Spark metastore table."""
+        qualified = f"{self.full_catalog_schema_reference}.{table_name}"
+        return [f.name for f in self.spark.table(qualified).schema.fields]
+
+    def list_databases(self) -> list:
+        """List databases/schemas visible to the current Spark catalog."""
+        rows = self.spark.sql("SHOW DATABASES").collect()
+        # SHOW DATABASES column name varies by Spark version: namespace | databaseName
+        out = []
+        for r in rows:
+            d = r.asDict()
+            out.append(d.get("namespace") or d.get("databaseName") or next(iter(d.values())))
+        return out
+
+    def list_tables(self, database: str) -> list:
+        """List tables in `database` from the Spark catalog."""
+        # Backtick each dotted segment separately so multi-part names like
+        # `catalog.schema` (or Fabric's `workspace.lakehouse.schema`) resolve
+        # correctly. Wrapping the whole thing in one backtick turns it into a
+        # single literal identifier, which Spark mis-resolves.
+        qualified = ".".join(f"`{seg}`" for seg in database.split("."))
+        rows = self.spark.sql(f"SHOW TABLES IN {qualified}").collect()
+        return [r.asDict().get("tableName") for r in rows if r.asDict().get("tableName")]
+
     def load_parquet_to_delta(self, parquet_folder_uri: str, table_name: str, table_is_precreated: bool = False, context_decorator: Optional[str] = None):
         df = self.spark.read.parquet(parquet_folder_uri)
         if table_is_precreated:

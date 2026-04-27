@@ -5,6 +5,7 @@ from ...engines.duckdb import DuckDB
 from ...engines.daft import Daft
 from ...engines.polars import Polars
 from ...engines.sail import Sail
+from ...engines.livy import Livy
 
 class TPCDS(_LoadAndQuery):
     """
@@ -52,6 +53,7 @@ class TPCDS(_LoadAndQuery):
         Daft: None,
         Polars: None,
         Sail: None,
+        Livy: None,
     }
     BENCHMARK_NAME = 'TPCDS'
     TABLE_REGISTRY = [

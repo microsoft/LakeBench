@@ -36,6 +36,9 @@ class BaseEngine(ABC):
     SUPPORTS_SCHEMA_PREP = False
     SUPPORTS_MOUNT_PATH = True
     TABLE_FORMAT = 'delta'
+    # Default per-statement timeout (seconds). None = engine's default
+    # behavior (no Lakebench-imposed cap).
+    query_timeout_seconds: Optional[int] = None
     
     def __init__(
             self, 
@@ -212,6 +215,36 @@ class BaseEngine(ABC):
         return job_cost.quantize(Decimal('0.0000000000'))  # Ensure precision matches DECIMAL(18,10)
     
     
+    def get_table_columns(self, table_name: str) -> list:
+        """
+        Return column names for a registered/metastore table.
+
+        Override in subclasses that support schema introspection.
+        Returns an empty list by default (introspection not supported).
+        """
+        return []
+
+    def list_databases(self) -> list:
+        """
+        Return database/schema names visible to the engine's catalog.
+
+        Override in subclasses with a real catalog (Spark family, Livy, DuckDB).
+        Engines without a catalog (e.g. Polars, Daft) raise NotImplementedError.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support catalog discovery"
+        )
+
+    def list_tables(self, database: str) -> list:
+        """
+        Return table names in `database` from the engine's catalog.
+
+        Override in subclasses with a real catalog.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support catalog discovery"
+        )
+
     def create_external_location(self, location_uri: str):
         """
         Supports engines that need to create external locations for data access.

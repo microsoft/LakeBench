@@ -1,6 +1,6 @@
 from typing import List, Optional
 from ..base import BaseBenchmark
-from ...utils.query_utils import transpile_and_qualify_query, get_table_name_from_ddl
+from ...utils.query_utils import transpile_and_qualify_query, get_table_name_from_ddl, parse_ddl_columns, build_column_remap, apply_column_remap
 
 from ...engines.base import BaseEngine
 from ...engines.spark import Spark
@@ -8,6 +8,7 @@ from ...engines.duckdb import DuckDB
 from ...engines.daft import Daft
 from ...engines.polars import Polars
 from ...engines.sail import Sail
+from ...engines.livy import Livy
 
 import importlib.resources
 import inspect
@@ -24,6 +25,7 @@ class _LoadAndQuery(BaseBenchmark):
         Daft: None,
         Polars: None,
         Sail: None,
+        Livy: None,
     }
     MODE_REGISTRY = ['load', 'query', 'power_test', 'load_and_query']
     BENCHMARK_NAME = ''
@@ -242,6 +244,23 @@ class _LoadAndQuery(BaseBenchmark):
         if isinstance(self.engine, (DuckDB, Daft, Polars, Sail)):
             for table_name in self.TABLE_REGISTRY:
                 self.engine.register_table(table_name)
+
+        # Auto-detect column name mismatches between DDL spec and actual data
+        self._column_remap = {}
+        try:
+            actual_schemas = {}
+            for table_name in self.TABLE_REGISTRY:
+                cols = self.engine.get_table_columns(table_name)
+                if cols:
+                    actual_schemas[table_name] = [c.lower() for c in cols]
+            if actual_schemas:
+                ddl_columns = self._get_ddl_columns()
+                self._column_remap = build_column_remap(ddl_columns, actual_schemas)
+                if self._column_remap:
+                    print(f"Auto-remapping columns (data differs from spec): {self._column_remap}")
+        except Exception as e:
+            print(f"Schema introspection skipped: {e}")
+
         for query_name in self.query_list:
             prepped_query = self._return_query_definition(query_name)
             with self.timer(phase="Query", test_item=query_name, engine=self.engine) as tc:
@@ -271,6 +290,21 @@ class _LoadAndQuery(BaseBenchmark):
 
         self._run_load_test()
         self._run_query_test()
+
+    def _get_ddl_columns(self) -> dict:
+        """
+        Parse the DDL file and return {table_name: [col1, col2, ...]} with lowercased names.
+        Used for detecting column name mismatches between spec and actual data.
+        """
+        benchmark_name = self.__class__.__name__.lower()
+        # Always use canonical DDL as the reference spec
+        with importlib.resources.path(
+            f"lakebench.benchmarks.{benchmark_name}.resources.ddl.canonical",
+            self.DDL_FILE_NAME
+        ) as ddl_path:
+            with open(ddl_path, 'r') as f:
+                ddl_text = f.read()
+        return parse_ddl_columns(ddl_text)
 
     def _return_query_definition(self, query_name: str) -> str:
         """
@@ -320,10 +354,15 @@ class _LoadAndQuery(BaseBenchmark):
                 from_dialect = 'spark'
 
         prepped_query = transpile_and_qualify_query(
-            query=query, 
-            from_dialect=from_dialect, 
-            to_dialect=self.engine.SQLGLOT_DIALECT, 
+            query=query,
+            from_dialect=from_dialect,
+            to_dialect=self.engine.SQLGLOT_DIALECT,
             catalog=getattr(self.engine, 'catalog_name', None),
             schema=getattr(self.engine, 'schema_name', None)
         )
+
+        # Apply column remapping if mismatches were detected
+        if getattr(self, '_column_remap', None):
+            prepped_query = apply_column_remap(prepped_query, self._column_remap, self.engine.SQLGLOT_DIALECT)
+
         return prepped_query
