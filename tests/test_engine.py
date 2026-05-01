@@ -71,3 +71,91 @@ class TestGetJobCost:
         expected = engine.get_total_cores() * 0.1
         assert cost is not None
         assert float(cost) == pytest.approx(expected, rel=1e-6)
+
+
+class _MockSpark:
+    """Stub for Spark engine that captures executed DDL without requiring PySpark."""
+
+    def __init__(self):
+        self.executed_statements = []
+        # Minimal Spark engine attributes
+        self.version = "test"
+        self.cost_per_vcore_hour = None
+        self.cost_per_hour = None
+        self.extended_engine_metadata = {}
+        self.storage_options = {}
+        self.schema_or_working_directory_uri = None
+        self.fs = None
+        self.runtime = "local_unknown"
+
+    def execute_sql_statement(self, ddl):
+        self.executed_statements.append(ddl)
+
+
+def _make_spark_engine():
+    """Create a Spark engine instance that captures DDL without PySpark."""
+    from lakebench.engines.spark import Spark
+    engine = object.__new__(Spark)
+    engine.executed_statements = []
+    engine.version = "test"
+    engine.cost_per_vcore_hour = None
+    engine.cost_per_hour = None
+    engine.extended_engine_metadata = {}
+    engine.storage_options = {}
+    engine.schema_or_working_directory_uri = None
+    engine.fs = None
+    engine.runtime = "local_unknown"
+    engine.operating_system = engine._detect_os()
+
+    original_execute = engine.execute_sql_statement.__func__ if hasattr(engine.execute_sql_statement, '__func__') else None
+    engine.execute_sql_statement = lambda ddl: engine.executed_statements.append(ddl)
+    return engine
+
+
+class TestSparkCreateEmptyTableUsingDeltaInjection:
+    """Tests for USING delta injection in Spark._create_empty_table."""
+
+    def test_simple_ddl_gets_using_delta(self):
+        engine = _make_spark_engine()
+        ddl = "CREATE TABLE customer (c_custkey BIGINT NOT NULL, c_name VARCHAR(25) NOT NULL)"
+        engine._create_empty_table(table_name="customer", ddl=ddl)
+        result = engine.executed_statements[0].lower()
+        assert "using delta" in result
+        assert "customer" in result
+
+    def test_cluster_by_using_delta_before_cluster(self):
+        engine = _make_spark_engine()
+        ddl = "CREATE TABLE lineitem (l_orderkey BIGINT NOT NULL, l_shipdate DATE NOT NULL) CLUSTER BY (l_shipdate)"
+        engine._create_empty_table(table_name="lineitem", ddl=ddl)
+        result = engine.executed_statements[0].lower()
+        assert "using delta" in result
+        assert "cluster by" in result
+        using_pos = result.index("using delta")
+        cluster_pos = result.index("cluster by")
+        assert using_pos < cluster_pos, "USING delta must appear before CLUSTER BY"
+
+    def test_partitioned_by_using_delta_before_partition(self):
+        engine = _make_spark_engine()
+        ddl = "CREATE TABLE orders (o_orderkey BIGINT NOT NULL, o_orderdate DATE NOT NULL) PARTITIONED BY (o_orderdate)"
+        engine._create_empty_table(table_name="orders", ddl=ddl)
+        result = engine.executed_statements[0].lower()
+        assert "using delta" in result
+        assert "partitioned by" in result
+        using_pos = result.index("using delta")
+        partition_pos = result.index("partitioned by")
+        assert using_pos < partition_pos, "USING delta must appear before PARTITIONED BY"
+
+    def test_existing_using_clause_not_duplicated(self):
+        engine = _make_spark_engine()
+        ddl = "CREATE TABLE t (id INT) USING delta CLUSTER BY (id)"
+        engine._create_empty_table(table_name="t", ddl=ddl)
+        result = engine.executed_statements[0].lower()
+        assert result.count("using") == 1, "Should not add a second USING clause"
+
+    def test_existing_using_parquet_preserved(self):
+        engine = _make_spark_engine()
+        ddl = "CREATE TABLE t (id INT) USING parquet"
+        engine._create_empty_table(table_name="t", ddl=ddl)
+        result = engine.executed_statements[0].lower()
+        assert "using parquet" in result
+        assert "using delta" not in result

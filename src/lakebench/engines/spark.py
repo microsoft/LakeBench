@@ -189,19 +189,29 @@ class Spark(BaseEngine):
 
         Notes
         -----
-        Automatically adds 'USING delta' clause if no storage format is specified.
+        Automatically adds 'USING delta' clause after the column definitions
+        if no storage format is already specified. Handles DDLs that include
+        ``PARTITIONED BY``, ``CLUSTER BY``, or ``TBLPROPERTIES`` clauses by
+        inserting ``USING delta`` in the correct position.
         """
-        # Explicitly set the table type to Delta if not already specified
         if 'using ' not in ddl.lower():
-            # Find the closing parenthesis of the column definitions
-            closing_paren_index = ddl.rfind(")")
-            if closing_paren_index != -1:
-                # Insert 'USING delta' after the closing parenthesis
-                ddl = (
-                    ddl[:closing_paren_index + 1]
-                    + " using delta"
-                    + ddl[closing_paren_index + 1:]
+            import sqlglot
+            expression = sqlglot.parse_one(ddl, dialect="spark")
+            create_node = expression.find(sqlglot.exp.Create)
+            if create_node is not None:
+                existing_props = create_node.args.get("properties")
+                existing_exprs = existing_props.expressions if existing_props else []
+                # Prepend so USING appears before CLUSTER BY / PARTITIONED BY
+                create_node.set(
+                    "properties",
+                    sqlglot.exp.Properties(
+                        expressions=[
+                            sqlglot.exp.FileFormatProperty(this=sqlglot.exp.Literal.string("delta")),
+                            *existing_exprs,
+                        ]
+                    ),
                 )
+                ddl = create_node.sql(dialect="spark", pretty=True)
 
         self.execute_sql_statement(ddl)
 

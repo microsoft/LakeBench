@@ -75,4 +75,7 @@ class TPCDS(_LoadAndQuery):
         'q91', 'q92', 'q93', 'q94', 'q95', 'q96', 'q97', 'q98', 'q99'
     ]
     DDL_FILE_NAME = 'ddl_v3.2.0.sql'
+    DDL_VARIANT_REGISTRY = {
+        'partitioned': 'ddl_v3.2.0.partitioned.sql',
+    }
     VERSION = '3.2.0'

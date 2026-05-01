@@ -81,7 +81,10 @@ class ClickBench(_LoadAndQuery):
             query_list: Optional[List[str]] = None,
             input_parquet_folder_uri: Optional[str] = None,
             result_table_uri: Optional[str] = None,
-            save_results: bool = False
+            save_results: bool = False,
+            ddl_variant: Optional[str] = None,
+            ddl_override: Optional[str] = None,
+            ddl_override_dialect: Optional[str] = 'spark'
         ):
         super().__init__(
             engine=engine, 
@@ -90,5 +93,8 @@ class ClickBench(_LoadAndQuery):
             query_list=query_list,
             input_parquet_folder_uri=input_parquet_folder_uri,
             result_table_uri=result_table_uri,
-            save_results=save_results
+            save_results=save_results,
+            ddl_variant=ddl_variant,
+            ddl_override=ddl_override,
+            ddl_override_dialect=ddl_override_dialect
         )
