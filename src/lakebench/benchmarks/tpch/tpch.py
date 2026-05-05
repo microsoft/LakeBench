@@ -62,5 +62,6 @@ class TPCH(_LoadAndQuery):
     DDL_FILE_NAME = 'ddl_v3.0.1.sql'
     DDL_VARIANT_REGISTRY = {
         'partitioned': 'ddl_v3.0.1.partitioned.sql',
+        'simple': 'ddl_v3.0.1.simple.sql',
     }
     VERSION = '3.0.1'
