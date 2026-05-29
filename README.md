@@ -35,7 +35,7 @@ LakeBench exists to bring clarity, trust, accessibility, and relevance to engine
 
 
 ## ✅ Why LakeBench?
-- **Multi-Engine**: Benchmark Spark, DuckDB, Polars, Daft, Sail and others, side-by-side
+- **Multi-Engine**: Benchmark Spark, DuckDB, Polars, Daft, Sail, Spark Connect, Databricks, Livy and others, side-by-side
 - **Lifecycle Coverage**: Ingest, transform, maintain, and query—just like real workloads
 - **Diverse Workloads**: Test performance across varied data shapes and operations
 - **Consistent Execution**: One framework, many engines
@@ -47,7 +47,7 @@ LakeBench empowers data teams to make informed engine decisions based on real wo
 
 ## 💪 Benchmarks
 
-LakeBench currently supports four benchmarks with more to come:
+LakeBench currently supports five benchmarks with more to come:
 
 - **ELTBench**: An benchmark that simulates typicaly ELT workloads:
   - Raw data load (Parquet → Delta)
@@ -58,24 +58,25 @@ LakeBench currently supports four benchmarks with more to come:
 - **[TPC-DS](https://www.tpc.org/tpcds/)**: An industry-standard benchmark for complex analytical queries, featuring 24 source tables and 99 queries. Designed to simulate decision support systems and analytics workloads.
 - **[TPC-H](https://www.tpc.org/tpch/)**: Focuses on ad-hoc decision support with 8 tables and 22 queries, evaluating performance on business-oriented analytical workloads.
 - **[ClickBench](https://github.com/ClickHouse/ClickBench)**: A benchmark that simulates ad-hoc analytical and real-time queries on clickstream, traffic analysis, web analytics, machine-generated data, structured logs, and events data. The load phase (single flat table) is followed by 43 queries.
-
-_Planned_
-- **[TPC-DI](https://www.tpc.org/tpcdi/)**: An industry-standard benchmark for data integration workloads, evaluating end-to-end ETL/ELT performance across heterogeneous sources—including data ingestion, transformation, and loading processes.
+- **[TPC-DI](https://www.tpc.org/tpcdi/)**: An industry-standard benchmark for data integration workloads, evaluating end-to-end ETL/ELT performance across heterogeneous sources—including data ingestion from CSV, XML, and fixed-width files, dimensional model construction (SCD Type 2), incremental batch processing with CDC/merge logic, and audit validation.
 
 ## ⚙️ Engine Support Matrix
 
 LakeBench supports multiple lakehouse compute engines. Each benchmark scenario declares which engines it supports via `<BenchmarkClassName>.BENCHMARK_IMPL_REGISTRY`.
 
-| Engine          | ELTBench | TPC-DS | TPC-H   | ClickBench |
-|-----------------|:--------:|:------:|:-------:|:----------:|
-| Spark (Generic) |    ✅    |   ✅   |   ✅  |    ✅    |
-| Fabric Spark    |    ✅    |   ✅   |   ✅  |    ✅    |
-| Synapse Spark   |    ✅    |   ✅   |   ✅  |    ✅    |
-| HDInsight Spark |    ✅    |   ✅   |   ✅  |    ✅    |
-| DuckDB          |    ✅    |   ✅   |   ✅  |    ✅    |
-| Polars          |    ✅    |   ⚠️   |   ⚠️  |    ⚠️    |
-| Daft            |    ✅    |   ⚠️   |   ⚠️  |    ⚠️    |
-| Sail            |    ✅    |   ✅   |   ✅  |    ✅    |
+| Engine          | ELTBench | TPC-DS | TPC-H   | ClickBench | TPC-DI |
+|-----------------|:--------:|:------:|:-------:|:----------:|:------:|
+| Spark (Generic) |    ✅    |   ✅   |   ✅  |    ✅    |   ✅   |
+| Fabric Spark    |    ✅    |   ✅   |   ✅  |    ✅    |   ✅   |
+| Synapse Spark   |    ✅    |   ✅   |   ✅  |    ✅    |   ✅   |
+| HDInsight Spark |    ✅    |   ✅   |   ✅  |    ✅    |   ✅   |
+| DuckDB          |    ✅    |   ✅   |   ✅  |    ✅    |   ✅   |
+| Polars          |    ✅    |   ⚠️   |   ⚠️  |    ⚠️    |   ✅   |
+| Daft            |    ✅    |   ⚠️   |   ⚠️  |    ⚠️    |   ✅   |
+| Sail            |    ✅    |   ✅   |   ✅  |    ✅    |   ✅   |
+| Spark Connect   |    ✅    |   ✅   |   ✅  |    ✅    |   ✅   |
+| Databricks      |    ✅    |   ✅   |   ✅  |    ✅    |   ✅   |
+| Livy            |          |   ✅   |   ✅  |    ✅    |        |
 
 > **Legend:**  
 > ✅ = Supported  
@@ -273,6 +274,126 @@ benchmark = ELTBench(
 
 benchmark.run()
 ```
+---
+
+## Command Line Interface (CLI)
+
+LakeBench includes a CLI for running benchmarks and generating data without writing Python code.
+
+### Installation
+```bash
+pip install lakebench[duckdb]
+```
+
+After installation, the `lakebench` command is available:
+
+### Running Benchmarks
+```bash
+# Run TPC-H with a profile
+lakebench run --profile local-duckdb --benchmark tpch --scenario sf1 --scale-factor 1 --input-uri /tmp/tpch_sf1
+
+# Run with default profile
+lakebench run --benchmark tpch --scenario sf1 --scale-factor 1 --input-uri /tmp/tpch_sf1 --save-results --result-uri /tmp/results
+```
+
+### Generating Data
+```bash
+lakebench datagen --benchmark tpch --scale-factor 1 --output /tmp/tpch_sf1
+lakebench datagen --benchmark tpcds --scale-factor 1 --output /tmp/tpcds_sf1
+lakebench datagen --benchmark tpcdi --scale-factor 5 --output /tmp/tpcdi --digen-jar ./TPC-DI/DIGen.jar
+```
+
+### Managing Profiles
+```bash
+lakebench profiles list
+lakebench profiles show local-duckdb
+```
+
+## Profile Configuration (`.lakebench.json`)
+
+LakeBench uses a two-tier profile system:
+- **`~/.lakebench.json`** — Global user defaults (shared across all projects)
+- **`./lakebench.json`** — Project-level overrides (takes precedence over global)
+
+### Example Configuration
+```json
+{
+  "defaults": {
+    "profile": "local-duckdb",
+    "save_results": true,
+    "result_table_uri": "/tmp/lakebench/results"
+  },
+  "profiles": {
+    "local-duckdb": {
+      "engine": "duckdb",
+      "engine_options": {
+        "schema_or_working_directory_uri": "/tmp/lakebench"
+      }
+    },
+    "fabric-prod": {
+      "engine": "fabric_spark",
+      "engine_options": {
+        "lakehouse_name": "my_lakehouse",
+        "lakehouse_schema_name": "benchmarks"
+      }
+    },
+    "databricks-prod": {
+      "engine": "databricks",
+      "engine_options": {
+        "host": "https://xxx.cloud.databricks.com",
+        "cluster_id": "0123-456789-abcdef",
+        "schema_name": "benchmarks",
+        "token_env": "DATABRICKS_TOKEN"
+      }
+    },
+    "spark-connect": {
+      "engine": "spark_connect",
+      "engine_options": {
+        "remote": "sc://localhost:15002",
+        "schema_name": "benchmarks"
+      }
+    }
+  }
+}
+```
+
+> **Security Note:** Profiles reference environment variable names for tokens (`token_env`), never the tokens themselves.
+
+## Remote Execution Engines
+
+In addition to local engines, LakeBench supports remote execution backends:
+
+### Spark Connect
+Connect to a remote Spark cluster via the Spark Connect protocol:
+```python
+from lakebench.engines import SparkConnect
+engine = SparkConnect(remote="sc://host:15002", schema_name="benchmarks")
+```
+Install: `pip install lakebench[spark_connect]`
+
+### Databricks
+Connect to a Databricks cluster via Databricks Connect:
+```python
+from lakebench.engines import Databricks
+engine = Databricks(
+    host="https://xxx.cloud.databricks.com",
+    cluster_id="0123-456789-abcdef",
+    schema_name="benchmarks"
+)
+```
+Install: `pip install lakebench[databricks]`
+
+### Livy
+Execute benchmarks via the Apache Livy REST API:
+```python
+from lakebench.engines import Livy
+engine = Livy(
+    url="https://livy.example.com",
+    schema_or_working_directory_uri="/tmp/lakebench"
+)
+```
+Install: `pip install lakebench[livy]`
+
 ---
 
 ## Managing Queries Over Various Dialects

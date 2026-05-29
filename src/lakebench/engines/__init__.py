@@ -1,5 +1,6 @@
 from .base import BaseEngine
 from .daft import Daft
+from .databricks import Databricks
 from .delta_rs import DeltaRs
 from .duckdb import DuckDB
 from .fabric_spark import FabricSpark
