@@ -1,12 +1,16 @@
-from ....engines.spark import Spark
 from typing import Optional
+
+from ....engines.spark import Spark
+
 
 class SparkClickBench:
     def __init__(self, engine: Spark):
-        
+
         self.engine = engine
 
-    def load_parquet_to_delta(self, parquet_folder_uri: str, table_name: str, table_is_precreated: bool = False, context_decorator: str = None):
+    def load_parquet_to_delta(
+        self, parquet_folder_uri: str, table_name: str, table_is_precreated: bool = False, context_decorator: str = None
+    ):
         """
         Loads the ClickBench parquet data into Delta format using Spark.
 
@@ -16,6 +20,7 @@ class SparkClickBench:
             Path to the source parquet files.
         """
         from pyspark.sql import functions as sf
+
         # Load parquet files
         df = self.engine.spark.read.parquet(parquet_folder_uri)
 

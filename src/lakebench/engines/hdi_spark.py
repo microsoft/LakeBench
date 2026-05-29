@@ -1,5 +1,7 @@
-from .spark import Spark
 from typing import Optional
+
+from .spark import Spark
+
 
 class HDISpark(Spark):
     """
@@ -7,11 +9,8 @@ class HDISpark(Spark):
     """
 
     def __init__(
-            self,
-            schema_name: str,
-            spark_measure_telemetry: bool = False,
-            cost_per_vcore_hour: Optional[float] = None
-            ):
+        self, schema_name: str, spark_measure_telemetry: bool = False, cost_per_vcore_hour: Optional[float] = None
+    ):
         """
         Parameters
         ----------
@@ -25,9 +24,9 @@ class HDISpark(Spark):
         """
 
         super().__init__(
-            catalog_name=None, 
-            schema_name=schema_name, 
+            catalog_name=None,
+            schema_name=schema_name,
             spark_measure_telemetry=spark_measure_telemetry,
             cost_per_vcore_hour=cost_per_vcore_hour,
-            compute_stats_all_cols=False
-            )
+            compute_stats_all_cols=False,
+        )

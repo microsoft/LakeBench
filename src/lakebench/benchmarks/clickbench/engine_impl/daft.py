@@ -1,16 +1,18 @@
-from ....engines.daft import Daft
-from ....utils.path_utils import to_file_uri, _REMOTE_SCHEMES
 import pathlib
 import posixpath
 from typing import Optional
+
+from ....engines.daft import Daft
+from ....utils.path_utils import _REMOTE_SCHEMES, to_file_uri
 
 
 class DaftClickBench:
     def __init__(self, engine: Daft):
         self.engine = engine
 
-    def load_parquet_to_delta(self, parquet_folder_uri: str, table_name: str,
-                              table_is_precreated: bool = False, context_decorator: str = None):
+    def load_parquet_to_delta(
+        self, parquet_folder_uri: str, table_name: str, table_is_precreated: bool = False, context_decorator: str = None
+    ):
         daft = self.engine.daft
         df = daft.read_parquet(parquet_folder_uri)
 
@@ -27,10 +29,13 @@ class DaftClickBench:
         col_names = [f.name for f in df.schema()]
         for ts_col in ("EventTime", "ClientEventTime", "LocalEventTime"):
             if ts_col in col_names:
-                df = df.with_columns({
-                    ts_col: (daft.col(ts_col).cast(daft.DataType.int64()) * 1_000_000)
-                            .cast(daft.DataType.timestamp("us"))
-                })
+                df = df.with_columns(
+                    {
+                        ts_col: (daft.col(ts_col).cast(daft.DataType.int64()) * 1_000_000).cast(
+                            daft.DataType.timestamp("us")
+                        )
+                    }
+                )
 
         # Write delta — pre-create dir + to_file_uri (same pattern as Daft.load_parquet_to_delta)
         raw_path = posixpath.join(self.engine.schema_or_working_directory_uri, table_name)

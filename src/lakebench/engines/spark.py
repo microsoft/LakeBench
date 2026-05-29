@@ -1,8 +1,11 @@
-from .base import BaseEngine
 import os
-from typing import Optional
 import posixpath
+from typing import Optional
+
 import tenacity
+
+from .base import BaseEngine
+
 
 class Spark(BaseEngine):
     """
@@ -29,21 +32,21 @@ class Spark(BaseEngine):
     append_array_to_delta(abfss_path: str, array: list)
         Appends a list of data to a Delta table at the specified path.
     """
+
     SQLGLOT_DIALECT = "spark"
     SUPPORTS_MOUNT_PATH = True
     SUPPORTS_ONELAKE = True
     SUPPORTS_SCHEMA_PREP = True
-    
 
     def __init__(
-            self,
-            schema_name: str,
-            catalog_name: Optional[str] = None,
-            schema_uri: Optional[str] = None,
-            spark_measure_telemetry: bool = False,
-            cost_per_vcore_hour: Optional[float] = None,
-            compute_stats_all_cols: bool = False
-            ):
+        self,
+        schema_name: str,
+        catalog_name: Optional[str] = None,
+        schema_uri: Optional[str] = None,
+        spark_measure_telemetry: bool = False,
+        cost_per_vcore_hour: Optional[float] = None,
+        compute_stats_all_cols: bool = False,
+    ):
         """
         Parameters
         ----------
@@ -62,31 +65,29 @@ class Spark(BaseEngine):
             Whether to compute statistics for all columns after each table is loaded.
         """
         super().__init__(schema_or_working_directory_uri=schema_uri)
-        from pyspark.sql import SparkSession
         import pyspark.sql.functions as sf
+        from pyspark.sql import SparkSession
+
         self.sf = sf
 
         self.spark = SparkSession.builder
         if self.runtime == "local_unknown":
-            warehouse_dir = posixpath.dirname(schema_uri.rstrip('/').rstrip('\\'))
+            warehouse_dir = posixpath.dirname(schema_uri.rstrip("/").rstrip("\\"))
             self.spark = (
-                self.spark
-                    .master("local[*]")
-                    .config("spark.sql.warehouse.dir", warehouse_dir)
-                    .config("spark.driver.host", "localhost")
-                    .config("spark.driver.bindAddress", "localhost")
-                    .config("spark.ui.enabled", "false")
-                    .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-                    .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
-                    .config("spark.jars.packages", "io.delta:delta-spark_2.12:3.2.0")
-                    .config("spark.sql.catalogImplementation", "hive")
+                self.spark.master("local[*]")
+                .config("spark.sql.warehouse.dir", warehouse_dir)
+                .config("spark.driver.host", "localhost")
+                .config("spark.driver.bindAddress", "localhost")
+                .config("spark.ui.enabled", "false")
+                .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+                .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+                .config("spark.jars.packages", "io.delta:delta-spark_2.12:3.2.0")
+                .config("spark.sql.catalogImplementation", "hive")
             )
             if self.operating_system == "windows":
                 # Windows-specific configurations to avoid native IO issues
-                self.spark = (
-                    self.spark
-                        .config("spark.hadoop.io.native.lib.available", "false")
-                        .config("spark.hadoop.fs.file.impl.disable.cache", "true")
+                self.spark = self.spark.config("spark.hadoop.io.native.lib.available", "false").config(
+                    "spark.hadoop.fs.file.impl.disable.cache", "true"
                 )
 
         self.spark = self.spark.getOrCreate()
@@ -95,32 +96,45 @@ class Spark(BaseEngine):
         if spark_measure_telemetry:
             try:
                 from sparkmeasure import StageMetrics
+
                 self.capture_metrics = StageMetrics(self.spark)
             except ModuleNotFoundError:
-                raise ModuleNotFoundError("`sparkmeasure` is not installed, either disable the `spark_measure_telemetry` flag, run `%pip install sparkmeasure==0.24.0`, or install LakeBench with the sparkmeasure option: `%pip install lakebench[sparkmeasure]`.")
+                raise ModuleNotFoundError(
+                    "`sparkmeasure` is not installed, either disable the `spark_measure_telemetry` flag, run `%pip install sparkmeasure==0.24.0`, or install LakeBench with the sparkmeasure option: `%pip install lakebench[sparkmeasure]`."
+                )
         self.spark_measure_telemetry = spark_measure_telemetry
 
         self.version: str = self.spark.sparkContext.version
 
         self.catalog_name = catalog_name if self.runtime != "local_unknown" else None
         self.schema_name = schema_name
-        self.full_catalog_schema_reference : str = f"`{self.catalog_name}`.`{self.schema_name}`" if catalog_name else f"`{self.schema_name}`"
+        self.full_catalog_schema_reference: str = (
+            f"`{self.catalog_name}`.`{self.schema_name}`" if catalog_name else f"`{self.schema_name}`"
+        )
         self.cost_per_vcore_hour = cost_per_vcore_hour
         self.spark_configs = self.__get_spark_session_configs()
-        self.extended_engine_metadata.update({
-            'parquet.block.size': self.spark.sparkContext._jsc.hadoopConfiguration().get("parquet.block.size") or '',
-        })
-        spark_configs_to_log = {k: v for k, v in self.spark_configs.items() if k in [
-            'spark.executor.memory',
-            'spark.databricks.delta.optimizeWrite.enabled',
-            'spark.databricks.delta.optimizeWrite.binSize',
-            'spark.sql.autoBroadcastJoinThreshold',
-            'spark.sql.sources.parallelPartitionDiscovery.parallelism',
-            'spark.sql.cbo.enabled',
-            'spark.sql.shuffle.partitions',
-            'spark.task.cpus',
-            'spark.sql.parquet.compression.codec'
-        ]}
+        self.extended_engine_metadata.update(
+            {
+                "parquet.block.size": self.spark.sparkContext._jsc.hadoopConfiguration().get("parquet.block.size")
+                or "",
+            }
+        )
+        spark_configs_to_log = {
+            k: v
+            for k, v in self.spark_configs.items()
+            if k
+            in [
+                "spark.executor.memory",
+                "spark.databricks.delta.optimizeWrite.enabled",
+                "spark.databricks.delta.optimizeWrite.binSize",
+                "spark.sql.autoBroadcastJoinThreshold",
+                "spark.sql.sources.parallelPartitionDiscovery.parallelism",
+                "spark.sql.cbo.enabled",
+                "spark.sql.shuffle.partitions",
+                "spark.task.cpus",
+                "spark.sql.parquet.compression.codec",
+            ]
+        }
 
         self.extended_engine_metadata.update(spark_configs_to_log)
 
@@ -138,7 +152,7 @@ class Spark(BaseEngine):
         """
         scala_map = self.spark.conf._jconf.getAll()
         spark_conf_dict = {}
- 
+
         iterator = scala_map.iterator()
         while iterator.hasNext():
             entry = iterator.next()
@@ -146,14 +160,13 @@ class Spark(BaseEngine):
             value = entry._2()
             spark_conf_dict[key] = value
         return spark_conf_dict
-    
+
     # Use tenacity to retry on NativeIO error common in spark running on local Windows
     @tenacity.retry(
         retry=tenacity.retry_if_exception(
-            lambda e: "java.lang.UnsatisfiedLinkError" in str(e) and 
-                     "NativeIO$POSIX.stat" in str(e)
+            lambda e: "java.lang.UnsatisfiedLinkError" in str(e) and "NativeIO$POSIX.stat" in str(e)
         ),
-        stop=tenacity.stop_after_attempt(2)
+        stop=tenacity.stop_after_attempt(2),
     )
     def create_schema_if_not_exists(self, drop_before_create: bool = True):
         """
@@ -169,7 +182,7 @@ class Spark(BaseEngine):
         Uses tenacity retry decorator to handle NativeIO errors common in Spark
         running on local Windows environments.
         """
-        location_str = f"LOCATION '{self.schema_uri}'" if self.schema_uri is not None else ''
+        location_str = f"LOCATION '{self.schema_uri}'" if self.schema_uri is not None else ""
 
         if drop_before_create:
             self.spark.sql(f"DROP SCHEMA IF EXISTS {self.full_catalog_schema_reference} CASCADE")
@@ -192,16 +205,12 @@ class Spark(BaseEngine):
         Automatically adds 'USING delta' clause if no storage format is specified.
         """
         # Explicitly set the table type to Delta if not already specified
-        if 'using ' not in ddl.lower():
+        if "using " not in ddl.lower():
             # Find the closing parenthesis of the column definitions
             closing_paren_index = ddl.rfind(")")
             if closing_paren_index != -1:
                 # Insert 'USING delta' after the closing parenthesis
-                ddl = (
-                    ddl[:closing_paren_index + 1]
-                    + " using delta"
-                    + ddl[closing_paren_index + 1:]
-                )
+                ddl = ddl[: closing_paren_index + 1] + " using delta" + ddl[closing_paren_index + 1 :]
 
         self.execute_sql_statement(ddl)
 
@@ -209,19 +218,34 @@ class Spark(BaseEngine):
         """
         Convert a generic schema to a specific Spark schema.
         """
-        from pyspark.sql.types import StructType, StructField, StringType, IntegerType, FloatType, DoubleType, BooleanType, TimestampType, MapType, ByteType, ShortType, LongType, DecimalType
+        from pyspark.sql.types import (
+            BooleanType,
+            ByteType,
+            DecimalType,
+            DoubleType,
+            FloatType,
+            IntegerType,
+            LongType,
+            MapType,
+            ShortType,
+            StringType,
+            StructField,
+            StructType,
+            TimestampType,
+        )
+
         type_mapping = {
-            'STRING': StringType(),
-            'TIMESTAMP': TimestampType(),
-            'TINYINT': ByteType(),
-            'SMALLINT': ShortType(),
-            'INT': IntegerType(),
-            'BIGINT': LongType(),
-            'FLOAT': FloatType(),
-            'DOUBLE': DoubleType(),
-            'DECIMAL(18,10)': DecimalType(18,10),  # Spark does not have a specific Decimal type, using DoubleType
-            'BOOLEAN': BooleanType(),
-            'MAP<STRING, STRING>': MapType(StringType(), StringType())
+            "STRING": StringType(),
+            "TIMESTAMP": TimestampType(),
+            "TINYINT": ByteType(),
+            "SMALLINT": ShortType(),
+            "INT": IntegerType(),
+            "BIGINT": LongType(),
+            "FLOAT": FloatType(),
+            "DOUBLE": DoubleType(),
+            "DECIMAL(18,10)": DecimalType(18, 10),  # Spark does not have a specific Decimal type, using DoubleType
+            "BOOLEAN": BooleanType(),
+            "MAP<STRING, STRING>": MapType(StringType(), StringType()),
         }
         return StructType([StructField(name, type_mapping[data_type], True) for name, data_type in generic_schema])
 
@@ -229,50 +253,72 @@ class Spark(BaseEngine):
         """
         Append an array to a Delta table.
         """
-        import pyspark.sql.functions as sf
         schema = self._convert_generic_to_specific_schema(generic_schema)
         # Use default order of columns in dictionary
         columns = list(results[0].keys())
         df = self.spark.createDataFrame(results, schema=schema).select(*columns)
-        df.write.format("delta") \
-            .option("mergeSchema", "true") \
-            .option("delta.enableDeletionVectors", "false") \
-            .option("delta.autoOptimize.autoCompact", "true") \
-            .option("delta.autoOptimize.optimizeWrite", "true") \
-            .mode("append") \
-            .save(table_uri)
+        df.write.format("delta").option("mergeSchema", "true").option("delta.enableDeletionVectors", "false").option(
+            "delta.autoOptimize.autoCompact", "true"
+        ).option("delta.autoOptimize.optimizeWrite", "true").mode("append").save(table_uri)
 
     def get_total_cores(self) -> int:
         """
         Returns the total number of CPU cores available in the Spark cluster.
-        
+
         Assumes that the driver and workers nodes are all the same VM size.
         """
-        cores = int(len(set(executor.host() for executor in self.spark.sparkContext._jsc.sc().statusTracker().getExecutorInfos())) * os.cpu_count())
+        cores = int(
+            len(
+                set(
+                    executor.host() for executor in self.spark.sparkContext._jsc.sc().statusTracker().getExecutorInfos()
+                )
+            )
+            * os.cpu_count()
+        )
         return cores
-        
+
     def get_compute_size(self) -> str:
         """
         Returns a formatted string with the compute size.
-        
+
         Assumes that the driver and workers nodes are all the same VM size.
-        """        
+        """
         sc_conf_dict = {key: value for key, value in self.spark.sparkContext.getConf().getAll()}
         executor_count = self.spark.sparkContext._jsc.sc().getExecutorMemoryStatus().size() - 1
-        executor_cores = int(sc_conf_dict.get('spark.executor.cores', os.cpu_count()))
-        vm_host_count = len(set(executor.host() for executor in self.spark.sparkContext._jsc.sc().statusTracker().getExecutorInfos()))
+        executor_cores = int(sc_conf_dict.get("spark.executor.cores", os.cpu_count()))
+        vm_host_count = len(
+            set(executor.host() for executor in self.spark.sparkContext._jsc.sc().statusTracker().getExecutorInfos())
+        )
         worker_count = vm_host_count - 1
         worker_cores = os.cpu_count()
-        as_min_workers = sc_conf_dict.get('spark.dynamicAllocation.initialExecutors') if sc_conf_dict.get('spark.autoscale.executorResourceInfoTag.enabled', 'false') == 'true' else None
-        as_max_workers = sc_conf_dict.get('spark.dynamicAllocation.maxExecutors') if sc_conf_dict.get('spark.autoscale.executorResourceInfoTag.enabled', 'false') == 'true' else None
-        as_enabled = True if as_min_workers != as_max_workers and sc_conf_dict.get('spark.dynamicAllocation.minExecutors', None) != sc_conf_dict.get('spark.dynamicAllocation.maxExecutors', None) else False
-        type = "SingleNode" if vm_host_count == 1 and not as_enabled else 'MultiNode'
-        workers_word = 'Workers' if worker_count > 1 or (as_max_workers is not None and int(as_max_workers) > 1)  else 'Worker'
+        as_min_workers = (
+            sc_conf_dict.get("spark.dynamicAllocation.initialExecutors")
+            if sc_conf_dict.get("spark.autoscale.executorResourceInfoTag.enabled", "false") == "true"
+            else None
+        )
+        as_max_workers = (
+            sc_conf_dict.get("spark.dynamicAllocation.maxExecutors")
+            if sc_conf_dict.get("spark.autoscale.executorResourceInfoTag.enabled", "false") == "true"
+            else None
+        )
+        as_enabled = (
+            True
+            if as_min_workers != as_max_workers
+            and sc_conf_dict.get("spark.dynamicAllocation.minExecutors", None)
+            != sc_conf_dict.get("spark.dynamicAllocation.maxExecutors", None)
+            else False
+        )
+        type = "SingleNode" if vm_host_count == 1 and not as_enabled else "MultiNode"
+        workers_word = (
+            "Workers" if worker_count > 1 or (as_max_workers is not None and int(as_max_workers) > 1) else "Worker"
+        )
         executors_per_worker = int(executor_count / worker_count) if worker_count > 0 else 1
-        executors_word = 'Executors' if executors_per_worker > 1 else 'Executor'
-        executor_str = f"({executors_per_worker} x {executor_cores}vCore {executors_word}{' ea.' if type != 'SingleNode' else ''})"
+        executors_word = "Executors" if executors_per_worker > 1 else "Executor"
+        executor_str = (
+            f"({executors_per_worker} x {executor_cores}vCore {executors_word}{' ea.' if type != 'SingleNode' else ''})"
+        )
 
-        if type == 'SingleNode':
+        if type == "SingleNode":
             cluster_config = f"{worker_cores}vCore {type} {executor_str}"
         elif as_enabled:
             cluster_config = f"{as_min_workers}-{as_max_workers} x {worker_cores}vCore {workers_word} {executor_str}"
@@ -280,20 +326,51 @@ class Spark(BaseEngine):
             cluster_config = f"{worker_count} x {worker_cores}vCore {workers_word} {executor_str}"
 
         return cluster_config
-    
-    def load_parquet_to_delta(self, parquet_folder_uri: str, table_name: str, table_is_precreated: bool = False, context_decorator: Optional[str] = None):
+
+    def get_table_columns(self, table_name: str) -> list:
+        """Return column names for a Spark metastore table."""
+        qualified = f"{self.full_catalog_schema_reference}.{table_name}"
+        return [f.name for f in self.spark.table(qualified).schema.fields]
+
+    def list_databases(self) -> list:
+        """List databases/schemas visible to the current Spark catalog."""
+        rows = self.spark.sql("SHOW DATABASES").collect()
+        # SHOW DATABASES column name varies by Spark version: namespace | databaseName
+        out = []
+        for r in rows:
+            d = r.asDict()
+            out.append(d.get("namespace") or d.get("databaseName") or next(iter(d.values())))
+        return out
+
+    def list_tables(self, database: str) -> list:
+        """List tables in `database` from the Spark catalog."""
+        # Backtick each dotted segment separately so multi-part names like
+        # `catalog.schema` (or Fabric's `workspace.lakehouse.schema`) resolve
+        # correctly. Wrapping the whole thing in one backtick turns it into a
+        # single literal identifier, which Spark mis-resolves.
+        qualified = ".".join(f"`{seg}`" for seg in database.split("."))
+        rows = self.spark.sql(f"SHOW TABLES IN {qualified}").collect()
+        return [r.asDict().get("tableName") for r in rows if r.asDict().get("tableName")]
+
+    def load_parquet_to_delta(
+        self,
+        parquet_folder_uri: str,
+        table_name: str,
+        table_is_precreated: bool = False,
+        context_decorator: Optional[str] = None,
+    ):
         df = self.spark.read.parquet(parquet_folder_uri)
         if table_is_precreated:
             df.write.insertInto(table_name, overwrite=True)
         else:
-            df.write.format('delta').mode("append").saveAsTable(table_name)
+            df.write.format("delta").mode("append").saveAsTable(table_name)
 
         if self.run_analyze_after_load:
-            self.spark.sql(f"ANALYZE TABLE {table_name} COMPUTE STATISTICS FOR ALL COLUMNS;")    
+            self.spark.sql(f"ANALYZE TABLE {table_name} COMPUTE STATISTICS FOR ALL COLUMNS;")
 
     def execute_sql_query(self, query: str, context_decorator: Optional[str] = None):
         execute_sql = self.spark.sql(query).collect()
-    
+
     def execute_sql_statement(self, statement: str, context_decorator: Optional[str] = None):
         """
         Execute a SQL statement.
