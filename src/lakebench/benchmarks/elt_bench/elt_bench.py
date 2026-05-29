@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.resources
 import posixpath
 from typing import Optional
 
@@ -139,37 +138,9 @@ class ELTBench(BaseBenchmark):
         self.engine.create_schema_if_not_exists(drop_before_create=True)
         self.engine.create_external_location(self.input_parquet_folder_uri)
 
-        engine_class_name = self.engine.__class__.__name__.lower()
-        parent_class_name = self.engine.__class__.__bases__[0].__name__.lower()
-        benchmark_name = "tpcds"
-        engine_root_lib_name = self.engine.__class__.__module__.split(".")[0]
-        from_dialect = self.engine.SQLGLOT_DIALECT
         self.DDL_FILE_NAME = TPCDS.DDL_FILE_NAME
-
-        try:
-            # Try to load engine-specific query first
-            with importlib.resources.path(
-                f"{engine_root_lib_name}.benchmarks.{benchmark_name}.resources.ddl.{engine_class_name}",
-                self.DDL_FILE_NAME,
-            ) as ddl_path:
-                with open(ddl_path, "r") as ddl_file:
-                    ddl = ddl_file.read()
-        except (ModuleNotFoundError, FileNotFoundError):
-            # Try parent engine class name if engine-specific fails
-            try:
-                with importlib.resources.path(
-                    f"lakebench.benchmarks.{benchmark_name}.resources.ddl.{parent_class_name}", self.DDL_FILE_NAME
-                ) as ddl_path:
-                    with open(ddl_path, "r") as ddl_file:
-                        ddl = ddl_file.read()
-            except (ModuleNotFoundError, FileNotFoundError):
-                # Fall back to canonical query
-                with importlib.resources.path(
-                    f"lakebench.benchmarks.{benchmark_name}.resources.ddl.canonical", self.DDL_FILE_NAME
-                ) as ddl_path:
-                    with open(ddl_path, "r") as ddl_file:
-                        ddl = ddl_file.read()
-                from_dialect = "spark"
+        ddl, used_canonical = self._load_resource_with_fallback("ddl", self.DDL_FILE_NAME, benchmark_name="tpcds")
+        from_dialect = "spark" if used_canonical else self.engine.SQLGLOT_DIALECT
 
         statements = [s for s in ddl.split(";") if len(s) > 7]
         for statement in statements:

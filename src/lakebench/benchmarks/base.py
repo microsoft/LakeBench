@@ -1,8 +1,9 @@
+import importlib.resources
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
 from importlib.metadata import version
-from typing import Dict, Optional, Type
+from typing import Dict, Optional, Tuple, Type
 
 from ..engines.base import BaseEngine
 from ..utils.timer import timer
@@ -124,6 +125,57 @@ class BaseBenchmark(ABC):
             The benchmark implementation class for the engine. If None, the engine's default methods will be used.
         """
         cls.BENCHMARK_IMPL_REGISTRY[engine_class] = benchmark_impl
+
+    def _load_resource_with_fallback(
+        self,
+        kind: str,
+        file_name: str,
+        benchmark_name: Optional[str] = None,
+    ) -> Tuple[str, bool]:
+        """
+        Resolve a per-engine SQL/DDL resource with the standard fallback chain:
+
+        1. ``<engine_root>.benchmarks.<benchmark>.resources.<kind>.<engine_class>``
+        2. ``lakebench.benchmarks.<benchmark>.resources.<kind>.<parent_engine_class>``
+        3. ``lakebench.benchmarks.<benchmark>.resources.<kind>.canonical`` (Spark dialect)
+
+        ``kind`` is e.g. ``"ddl"`` or ``"queries"`` — the package directory name.
+        ``benchmark_name`` defaults to the lowercased subclass name; pass an
+        override to borrow another benchmark's resources (e.g. ELTBench reuses
+        TPC-DS DDLs).
+
+        Returns
+        -------
+        (text, used_canonical) : Tuple[str, bool]
+            The file contents and a flag indicating whether the canonical fallback
+            was used (so callers can reset their source dialect to ``"spark"``).
+        """
+        engine_class_name = self.engine.__class__.__name__.lower()
+        parent_class_name = self.engine.__class__.__bases__[0].__name__.lower()
+        if benchmark_name is None:
+            benchmark_name = self.__class__.__name__.lower()
+        engine_root = self.engine.__class__.__module__.split(".")[0]
+
+        candidates = [
+            (f"{engine_root}.benchmarks.{benchmark_name}.resources.{kind}.{engine_class_name}", False),
+            (f"lakebench.benchmarks.{benchmark_name}.resources.{kind}.{parent_class_name}", False),
+            (f"lakebench.benchmarks.{benchmark_name}.resources.{kind}.canonical", True),
+        ]
+
+        last_err: Optional[Exception] = None
+        for pkg, is_canonical in candidates:
+            try:
+                with importlib.resources.path(pkg, file_name) as path:
+                    with open(path, "r") as fh:
+                        return fh.read(), is_canonical
+            except (ModuleNotFoundError, FileNotFoundError) as exc:
+                last_err = exc
+                continue
+
+        raise FileNotFoundError(
+            f"Could not locate resource '{file_name}' for benchmark "
+            f"'{benchmark_name}' under any of: {[c[0] for c in candidates]}"
+        ) from last_err
 
     @abstractmethod
     def run(self):

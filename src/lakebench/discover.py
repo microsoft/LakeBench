@@ -12,6 +12,7 @@ from typing import Dict, Iterable, List, Set, Tuple
 
 from lakebench.benchmarks.clickbench.clickbench import ClickBench
 from lakebench.benchmarks.elt_bench.elt_bench import ELTBench
+from lakebench.benchmarks.tpcdi.tpcdi import TPCDI
 from lakebench.benchmarks.tpcds.tpcds import TPCDS
 from lakebench.benchmarks.tpch.tpch import TPCH
 
@@ -23,6 +24,7 @@ def _norm(names: Iterable[str]) -> Set[str]:
 BENCHMARK_TABLES: Dict[str, Set[str]] = {
     "tpch": _norm(TPCH.TABLE_REGISTRY),
     "tpcds": _norm(TPCDS.TABLE_REGISTRY),
+    "tpcdi": _norm(TPCDI.TABLE_REGISTRY),
     "clickbench": _norm(ClickBench.TABLE_REGISTRY),
     "eltbench": _norm(ELTBench.TABLE_REGISTRY),
 }

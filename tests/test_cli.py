@@ -162,7 +162,6 @@ class TestSupportedModes:
         assert modes is not None
         assert "query" in modes
 
-    @pytest.mark.skip(reason="TPC-DI benchmark lands in a later PR; mode lookup returns None until then")
     def test_tpcdi(self):
         modes = cli._supported_modes("tpcdi")
         assert modes is not None
