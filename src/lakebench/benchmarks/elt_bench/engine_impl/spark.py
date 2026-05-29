@@ -1,9 +1,11 @@
 from ....engines.spark import Spark
 
+
 class SparkELTBench:
     def __init__(self, engine: Spark):
-        
+
         import numpy as np
+
         self.np = np
         self.engine = engine
 
@@ -75,21 +77,24 @@ class SparkELTBench:
         # fails to resolve target table attributes when source and target share column names.
         # Cloud runtimes (Databricks, Fabric, Synapse) use return this error.
         from delta.tables import DeltaTable
+
         delta_table = DeltaTable.forName(self.engine.spark, "total_sales_fact")
         delta_table.alias("target").merge(
             sampled_fact_data.alias("source"),
             "target.s_store_id = source.s_store_id AND "
             "target.i_item_id = source.i_item_id AND "
             "target.c_customer_id = source.c_customer_id AND "
-            "target.sale_date = source.sale_date"
-        ).whenMatchedUpdate(set={
-            "total_quantity":   "target.total_quantity + source.total_quantity",
-            "total_net_paid":   "target.total_net_paid + source.total_net_paid",
-            "total_net_profit": "target.total_net_profit + source.total_net_profit",
-        }).whenNotMatchedInsertAll().execute()
-        
+            "target.sale_date = source.sale_date",
+        ).whenMatchedUpdate(
+            set={
+                "total_quantity": "target.total_quantity + source.total_quantity",
+                "total_net_paid": "target.total_net_paid + source.total_net_paid",
+                "total_net_profit": "target.total_net_profit + source.total_net_profit",
+            }
+        ).whenNotMatchedInsertAll().execute()
+
     def query_total_sales_fact(self):
-        df = self.engine.spark.sql(f"""
+        df = self.engine.spark.sql("""
                             select sum(total_net_profit), year(sale_date) 
                             from total_sales_fact group by year(sale_date)
                             """)

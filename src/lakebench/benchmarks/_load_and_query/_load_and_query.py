@@ -1,79 +1,212 @@
-from typing import List, Optional
-from ..base import BaseBenchmark
-from ...utils.query_utils import transpile_and_qualify_query, get_table_name_from_ddl
-
-from ...engines.base import BaseEngine
-from ...engines.spark import Spark
-from ...engines.duckdb import DuckDB
-from ...engines.daft import Daft
-from ...engines.polars import Polars
-from ...engines.sail import Sail
-
 import importlib.resources
 import inspect
+import logging
 import posixpath
+from typing import List, Optional
+
+from ...engines.base import BaseEngine
+from ...engines.daft import Daft
+from ...engines.duckdb import DuckDB
+from ...engines.livy import Livy
+from ...engines.polars import Polars
+from ...engines.sail import Sail
+from ...engines.spark import Spark
+from ...utils.query_utils import (
+    apply_column_remap,
+    build_column_remap,
+    get_table_name_from_ddl,
+    parse_ddl_columns,
+    transpile_and_qualify_query,
+)
+from ..base import BaseBenchmark
+
+logger = logging.getLogger(__name__)
+
 
 class _LoadAndQuery(BaseBenchmark):
     """
-    Base class for benchmarks that only have a simple Load and Query phase (TPC-H, TPC-DS, ClickBench). 
-    PLEASE DO NOT INSTANTIATE THIS CLASS DIRECTLY. Use the subclasses instead. 
+    Base class for benchmarks that only have a simple Load and Query phase (TPC-H, TPC-DS, ClickBench).
+    PLEASE DO NOT INSTANTIATE THIS CLASS DIRECTLY. Use the subclasses instead.
     """
+
     BENCHMARK_IMPL_REGISTRY = {
         Spark: None,
         DuckDB: None,
         Daft: None,
         Polars: None,
         Sail: None,
+        Livy: None,
     }
-    MODE_REGISTRY = ['load', 'query', 'power_test', 'load_and_query']
-    BENCHMARK_NAME = ''
+    MODE_REGISTRY = ["load", "query", "power_test", "load_and_query"]
+    BENCHMARK_NAME = ""
     TABLE_REGISTRY = [
-        'call_center', 'catalog_page', 'catalog_returns', 'catalog_sales',
-        'customer', 'customer_address', 'customer_demographics', 'date_dim',
-        'household_demographics', 'income_band', 'inventory', 'item',
-        'promotion', 'reason', 'ship_mode', 'store', 'store_returns',
-        'store_sales', 'time_dim', 'warehouse', 'web_page', 'web_returns',
-        'web_sales', 'web_site'
+        "call_center",
+        "catalog_page",
+        "catalog_returns",
+        "catalog_sales",
+        "customer",
+        "customer_address",
+        "customer_demographics",
+        "date_dim",
+        "household_demographics",
+        "income_band",
+        "inventory",
+        "item",
+        "promotion",
+        "reason",
+        "ship_mode",
+        "store",
+        "store_returns",
+        "store_sales",
+        "time_dim",
+        "warehouse",
+        "web_page",
+        "web_returns",
+        "web_sales",
+        "web_site",
     ]
     QUERY_REGISTRY = [
-        'q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9', 'q10',
-        'q11', 'q12', 'q13', 'q14a', 'q14b', 'q15', 'q16', 'q17', 'q18', 'q19', 'q20',
-        'q21', 'q22', 'q23a', 'q23b', 'q24a', 'q24b', 'q25', 'q26', 'q27', 'q28', 'q29', 'q30',
-        'q31', 'q32', 'q33', 'q34', 'q35', 'q36', 'q37', 'q38', 'q39a', 'q39b', 'q40',
-        'q41', 'q42', 'q43', 'q44', 'q45', 'q46', 'q47', 'q48', 'q49', 'q50',
-        'q51', 'q52', 'q53', 'q54', 'q55', 'q56', 'q57', 'q58', 'q59', 'q60',
-        'q61', 'q62', 'q63', 'q64', 'q65', 'q66', 'q67', 'q68', 'q69', 'q70',
-        'q71', 'q72', 'q73', 'q74', 'q75', 'q76', 'q77', 'q78', 'q79', 'q80',
-        'q81', 'q82', 'q83', 'q84', 'q85', 'q86', 'q87', 'q88', 'q89', 'q90',
-        'q91', 'q92', 'q93', 'q94', 'q95', 'q96', 'q97', 'q98', 'q99'
+        "q1",
+        "q2",
+        "q3",
+        "q4",
+        "q5",
+        "q6",
+        "q7",
+        "q8",
+        "q9",
+        "q10",
+        "q11",
+        "q12",
+        "q13",
+        "q14a",
+        "q14b",
+        "q15",
+        "q16",
+        "q17",
+        "q18",
+        "q19",
+        "q20",
+        "q21",
+        "q22",
+        "q23a",
+        "q23b",
+        "q24a",
+        "q24b",
+        "q25",
+        "q26",
+        "q27",
+        "q28",
+        "q29",
+        "q30",
+        "q31",
+        "q32",
+        "q33",
+        "q34",
+        "q35",
+        "q36",
+        "q37",
+        "q38",
+        "q39a",
+        "q39b",
+        "q40",
+        "q41",
+        "q42",
+        "q43",
+        "q44",
+        "q45",
+        "q46",
+        "q47",
+        "q48",
+        "q49",
+        "q50",
+        "q51",
+        "q52",
+        "q53",
+        "q54",
+        "q55",
+        "q56",
+        "q57",
+        "q58",
+        "q59",
+        "q60",
+        "q61",
+        "q62",
+        "q63",
+        "q64",
+        "q65",
+        "q66",
+        "q67",
+        "q68",
+        "q69",
+        "q70",
+        "q71",
+        "q72",
+        "q73",
+        "q74",
+        "q75",
+        "q76",
+        "q77",
+        "q78",
+        "q79",
+        "q80",
+        "q81",
+        "q82",
+        "q83",
+        "q84",
+        "q85",
+        "q86",
+        "q87",
+        "q88",
+        "q89",
+        "q90",
+        "q91",
+        "q92",
+        "q93",
+        "q94",
+        "q95",
+        "q96",
+        "q97",
+        "q98",
+        "q99",
     ]
-    DDL_FILE_NAME = ''
-    VERSION = ''
+    DDL_FILE_NAME = ""
+    VERSION = ""
 
     def __init__(
-            self, 
-            engine: BaseEngine, 
-            scenario_name: str,
-            scale_factor: Optional[int] = None,
-            query_list: Optional[List[str]] = None,
-            input_parquet_folder_uri: Optional[str] = None,
-            result_table_uri: Optional[str] = None,
-            save_results: bool = False,
-            run_id: Optional[str] = None
-            ):
+        self,
+        engine: BaseEngine,
+        scenario_name: str,
+        scale_factor: Optional[int] = None,
+        query_list: Optional[List[str]] = None,
+        input_parquet_folder_uri: Optional[str] = None,
+        result_table_uri: Optional[str] = None,
+        save_results: bool = False,
+        run_id: Optional[str] = None,
+        auto_remap_columns: bool = False,
+    ):
         self.scale_factor = scale_factor
+        # When True, the query phase introspects actual table columns and
+        # silently rewrites queries to match columns that differ from the
+        # benchmark spec (e.g. spark-sql-perf's `c_last_review_date` typo).
+        # OFF by default: silently rewriting columns undermines benchmark
+        # reproducibility and can mask real data-prep bugs. Opt in only when
+        # you knowingly run against non-spec data you can't regenerate.
+        self.auto_remap_columns = auto_remap_columns
         super().__init__(engine, scenario_name, input_parquet_folder_uri, result_table_uri, save_results, run_id)
         if query_list is not None:
             expanded_query_list = []
             for query in query_list:
-                if query == '*':
+                if query == "*":
                     expanded_query_list.extend(self.QUERY_REGISTRY)  # Replace '*' with all queries
                 else:
                     expanded_query_list.append(query)
             query_set = set(expanded_query_list)
             if not query_set.issubset(self.QUERY_REGISTRY):
                 unsupported_queries = query_set - set(self.QUERY_REGISTRY)
-                raise ValueError(f"Query list contains unsupported queries: {unsupported_queries}. Supported queries: {self.QUERY_REGISTRY}.")
+                raise ValueError(
+                    f"Query list contains unsupported queries: {unsupported_queries}. Supported queries: {self.QUERY_REGISTRY}."
+                )
             self.query_list = expanded_query_list
         else:
             self.query_list = self.QUERY_REGISTRY
@@ -95,7 +228,7 @@ class _LoadAndQuery(BaseBenchmark):
 
         self.benchmark_impl = self.benchmark_impl_class(self.engine) if self.benchmark_impl_class is not None else None
 
-    def run(self, mode: str = 'power_test'):
+    def run(self, mode: str = "power_test"):
         """
         Executes a specific test mode based on the provided mode string.
 
@@ -112,17 +245,17 @@ class _LoadAndQuery(BaseBenchmark):
         -----
         The `MODE_REGISTRY` attribute contains the list of supported modes.
         """
-        self.mode = 'load_and_query' if mode in ('power_test', 'load_and_query') else mode
+        self.mode = "load_and_query" if mode in ("power_test", "load_and_query") else mode
 
-        if mode == 'load':
+        if mode == "load":
             self._run_load_test()
-        elif mode == 'query':
+        elif mode == "query":
             self._run_query_test()
-        elif mode in ('power_test', 'load_and_query'):
+        elif mode in ("power_test", "load_and_query"):
             self._run_power_test()
         else:
             raise ValueError(f"Unknown mode '{mode}'. Supported modes: {self.MODE_REGISTRY}.")
-    
+
     def _prepare_schema(self):
         """
         Prepares the database schema for the benchmark.
@@ -141,56 +274,26 @@ class _LoadAndQuery(BaseBenchmark):
         self.engine.create_schema_if_not_exists(drop_before_create=True)
         self.engine.create_external_location(self.input_parquet_folder_uri)
 
-        engine_class_name = self.engine.__class__.__name__.lower()
-        parent_class_name = self.engine.__class__.__bases__[0].__name__.lower()
-        benchmark_name = self.__class__.__name__.lower()
-        engine_root_lib_name = self.engine.__class__.__module__.split('.')[0]
-        from_dialect = self.engine.SQLGLOT_DIALECT
+        ddl, used_canonical = self._load_resource_with_fallback("ddl", self.DDL_FILE_NAME)
+        from_dialect = "spark" if used_canonical else self.engine.SQLGLOT_DIALECT
 
-        try:
-            # Try to load engine-specific query first
-            with importlib.resources.path(
-                f"{engine_root_lib_name}.benchmarks.{benchmark_name}.resources.ddl.{engine_class_name}", 
-                self.DDL_FILE_NAME
-            ) as ddl_path:
-                with open(ddl_path, 'r') as ddl_file:
-                    ddl = ddl_file.read()                
-        except (ModuleNotFoundError, FileNotFoundError):
-            # Try parent engine class name if engine-specific fails
-            try:
-                with importlib.resources.path(
-                    f"lakebench.benchmarks.{benchmark_name}.resources.ddl.{parent_class_name}", 
-                    self.DDL_FILE_NAME
-                ) as ddl_path:
-                    with open(ddl_path, 'r') as ddl_file:
-                        ddl = ddl_file.read()
-            except (ModuleNotFoundError, FileNotFoundError):
-                # Fall back to canonical query
-                with importlib.resources.path(
-                    f"lakebench.benchmarks.{benchmark_name}.resources.ddl.canonical", 
-                    self.DDL_FILE_NAME
-                ) as ddl_path:
-                    with open(ddl_path, 'r') as ddl_file:
-                        ddl = ddl_file.read()
-                from_dialect = 'spark'
-            
-        statements = [s for s in ddl.split(';') if len(s) > 7]
+        statements = [s for s in ddl.split(";") if len(s) > 7]
         for statement in statements:
             prepped_ddl = transpile_and_qualify_query(
-                query=statement, 
-                from_dialect=from_dialect, 
-                to_dialect=self.engine.SQLGLOT_DIALECT, 
-                catalog=getattr(self.engine, 'catalog_name', None),
-                schema=getattr(self.engine, 'schema_name', None)
+                query=statement,
+                from_dialect=from_dialect,
+                to_dialect=self.engine.SQLGLOT_DIALECT,
+                catalog=getattr(self.engine, "catalog_name", None),
+                schema=getattr(self.engine, "schema_name", None),
             )
             table_name = get_table_name_from_ddl(prepped_ddl)
 
             self.engine._create_empty_table(table_name=table_name, ddl=prepped_ddl)
-            
+
     def _run_load_test(self):
         """
-        Executes the load test by loading data from Parquet files into Delta tables 
-        for all tables registered in the `TABLE_REGISTRY`. This method also measures 
+        Executes the load test by loading data from Parquet files into Delta tables
+        for all tables registered in the `TABLE_REGISTRY`. This method also measures
         the time taken for each table load operation and records the results.
 
         Parameters
@@ -199,15 +302,15 @@ class _LoadAndQuery(BaseBenchmark):
 
         Notes
         -----
-        - If the engine is an instance of `Spark`, the schema is prepared before 
+        - If the engine is an instance of `Spark`, the schema is prepared before
           loading the data.
-        - The method uses a timer to measure the duration of the load operation 
+        - The method uses a timer to measure the duration of the load operation
           for each table.
         - Results are posted after all tables have been processed.
         """
         # set the mode if the module is being called directly
-        if inspect.currentframe().f_back.f_code.co_name not in ('run', '_run_power_test'):
-            self.mode = 'load'
+        if inspect.currentframe().f_back.f_code.co_name not in ("run", "_run_power_test"):
+            self.mode = "load"
 
         if self.engine.SUPPORTS_SCHEMA_PREP:
             self._prepare_schema()
@@ -217,17 +320,17 @@ class _LoadAndQuery(BaseBenchmark):
                     # If a specific benchmark implementation is defined, use it to load the table
                     tc.execution_telemetry = self.benchmark_impl.load_parquet_to_delta(
                         parquet_folder_uri=self.input_parquet_folder_uri,
-                        table_name=table_name, 
+                        table_name=table_name,
                         table_is_precreated=True,
-                        context_decorator=tc.context_decorator
+                        context_decorator=tc.context_decorator,
                     )
                 else:
                     # Otherwise, use the generic load method
                     tc.execution_telemetry = self.engine.load_parquet_to_delta(
-                        parquet_folder_uri=posixpath.join(self.input_parquet_folder_uri, f"{table_name}/"), 
+                        parquet_folder_uri=posixpath.join(self.input_parquet_folder_uri, f"{table_name}/"),
                         table_name=table_name,
                         table_is_precreated=True,
-                        context_decorator=tc.context_decorator
+                        context_decorator=tc.context_decorator,
                     )
         self.post_results()
 
@@ -236,26 +339,52 @@ class _LoadAndQuery(BaseBenchmark):
         Executes a series of SQL queries defined in the `query_list` attribute.
         """
         # set the mode if the module is being called directly
-        if inspect.currentframe().f_back.f_code.co_name not in ('run', '_run_power_test'):
-            self.mode = 'query'
+        if inspect.currentframe().f_back.f_code.co_name not in ("run", "_run_power_test"):
+            self.mode = "query"
 
         if isinstance(self.engine, (DuckDB, Daft, Polars, Sail)):
             for table_name in self.TABLE_REGISTRY:
                 self.engine.register_table(table_name)
+
+        # Auto-detect column name mismatches between DDL spec and actual data.
+        # Disabled unless the caller explicitly opts in (auto_remap_columns):
+        # silently renaming columns at query time hurts reproducibility and can
+        # hide real data bugs (see __init__ docstring).
+        self._column_remap = {}
+        if self.auto_remap_columns:
+            try:
+                actual_schemas = {}
+                for table_name in self.TABLE_REGISTRY:
+                    cols = self.engine.get_table_columns(table_name)
+                    if cols:
+                        actual_schemas[table_name] = [c.lower() for c in cols]
+                if actual_schemas:
+                    ddl_columns = self._get_ddl_columns()
+                    self._column_remap = build_column_remap(ddl_columns, actual_schemas)
+                    if self._column_remap:
+                        logger.warning(
+                            "auto_remap_columns is ON: rewriting %d column(s) because the "
+                            "loaded data differs from the benchmark spec. This changes the "
+                            "queries actually executed and may affect comparability. "
+                            "Remap: %s",
+                            len(self._column_remap),
+                            self._column_remap,
+                        )
+            except Exception as e:
+                logger.warning("Schema introspection skipped: %s", e)
+
         for query_name in self.query_list:
             prepped_query = self._return_query_definition(query_name)
             with self.timer(phase="Query", test_item=query_name, engine=self.engine) as tc:
                 if self.benchmark_impl is not None:
                     # If a specific benchmark implementation is defined, use it to perform the query
                     tc.execution_telemetry = self.benchmark_impl.execute_sql_query(
-                        prepped_query,
-                        context_decorator=tc.context_decorator
+                        prepped_query, context_decorator=tc.context_decorator
                     )
                 else:
                     # Otherwise, use the generic query method
                     tc.execution_telemetry = self.engine.execute_sql_query(
-                        prepped_query,
-                        context_decorator=tc.context_decorator
+                        prepped_query, context_decorator=tc.context_decorator
                     )
         self.post_results()
 
@@ -267,10 +396,24 @@ class _LoadAndQuery(BaseBenchmark):
         1. Load phase: Loads data into the target system.
         2. Query phase: Executes configured SQL queries to evaluate performance.
         """
-        self.mode = 'load_and_query'
+        self.mode = "load_and_query"
 
         self._run_load_test()
         self._run_query_test()
+
+    def _get_ddl_columns(self) -> dict:
+        """
+        Parse the DDL file and return {table_name: [col1, col2, ...]} with lowercased names.
+        Used for detecting column name mismatches between spec and actual data.
+        """
+        benchmark_name = self.__class__.__name__.lower()
+        # Always use canonical DDL as the reference spec
+        with importlib.resources.path(
+            f"lakebench.benchmarks.{benchmark_name}.resources.ddl.canonical", self.DDL_FILE_NAME
+        ) as ddl_path:
+            with open(ddl_path, "r") as f:
+                ddl_text = f.read()
+        return parse_ddl_columns(ddl_text)
 
     def _return_query_definition(self, query_name: str) -> str:
         """
@@ -286,44 +429,19 @@ class _LoadAndQuery(BaseBenchmark):
         str
             The SQL definition for the specified query.
         """
-        engine_class_name = self.engine.__class__.__name__.lower()
-        parent_class_name = self.engine.__class__.__bases__[0].__name__.lower()
-        benchmark_name = self.__class__.__name__.lower()
-        engine_root_lib_name = self.engine.__class__.__module__.split('.')[0]
-        from_dialect = self.engine.SQLGLOT_DIALECT
-
-        try:
-            # Try to load engine-specific query first
-            with importlib.resources.path(
-                f"{engine_root_lib_name}.benchmarks.{benchmark_name}.resources.queries.{engine_class_name}", 
-                f'{query_name}.sql'
-            ) as query_path:
-                with open(query_path, 'r') as query_file:
-                    query = query_file.read()                
-        except (ModuleNotFoundError, FileNotFoundError):
-            # Try parent engine class name if engine-specific fails
-            try:
-                with importlib.resources.path(
-                    f"lakebench.benchmarks.{benchmark_name}.resources.queries.{parent_class_name}", 
-                    f'{query_name}.sql'
-                ) as query_path:
-                    with open(query_path, 'r') as query_file:
-                        query = query_file.read()
-            except (ModuleNotFoundError, FileNotFoundError):
-                # Fall back to canonical query
-                with importlib.resources.path(
-                    f"lakebench.benchmarks.{benchmark_name}.resources.queries.canonical", 
-                    f'{query_name}.sql'
-                ) as query_path:
-                    with open(query_path, 'r') as query_file:
-                        query = query_file.read()
-                from_dialect = 'spark'
+        query, used_canonical = self._load_resource_with_fallback("queries", f"{query_name}.sql")
+        from_dialect = "spark" if used_canonical else self.engine.SQLGLOT_DIALECT
 
         prepped_query = transpile_and_qualify_query(
-            query=query, 
-            from_dialect=from_dialect, 
-            to_dialect=self.engine.SQLGLOT_DIALECT, 
-            catalog=getattr(self.engine, 'catalog_name', None),
-            schema=getattr(self.engine, 'schema_name', None)
+            query=query,
+            from_dialect=from_dialect,
+            to_dialect=self.engine.SQLGLOT_DIALECT,
+            catalog=getattr(self.engine, "catalog_name", None),
+            schema=getattr(self.engine, "schema_name", None),
         )
+
+        # Apply column remapping if mismatches were detected
+        if getattr(self, "_column_remap", None):
+            prepped_query = apply_column_remap(prepped_query, self._column_remap, self.engine.SQLGLOT_DIALECT)
+
         return prepped_query
