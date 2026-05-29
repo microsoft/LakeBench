@@ -51,6 +51,97 @@ class TestTranspileAndQualifyQuery:
         )
         assert "lineitem" in result
 
+    # ---- multi-part (3- and 4-part) name qualification ----
+
+    def test_three_part_schema_no_catalog_spark(self):
+        """Fabric-style workspace.lakehouse.schema → 4 backticked segments."""
+        result = transpile_and_qualify_query(
+            query="SELECT * FROM orders",
+            from_dialect="spark",
+            to_dialect="spark",
+            catalog=None,
+            schema="ws.lakehouse.dbo",
+        )
+        assert "`ws`.`lakehouse`.`dbo`.`orders`" in result
+
+    def test_catalog_plus_two_part_schema_spark(self):
+        """catalog + dotted schema must NOT drop the catalog (the old bug)."""
+        result = transpile_and_qualify_query(
+            query="SELECT * FROM orders",
+            from_dialect="spark",
+            to_dialect="spark",
+            catalog="cat",
+            schema="mid.sch",
+        )
+        assert "`cat`.`mid`.`sch`.`orders`" in result
+
+    def test_two_part_catalog_schema_spark(self):
+        result = transpile_and_qualify_query(
+            query="SELECT * FROM orders",
+            from_dialect="spark",
+            to_dialect="spark",
+            catalog="cat",
+            schema="sch",
+        )
+        assert "`cat`.`sch`.`orders`" in result
+
+    def test_multi_part_applies_to_all_tables_in_join(self):
+        result = transpile_and_qualify_query(
+            query="SELECT a FROM orders o JOIN customers c ON o.id = c.id",
+            from_dialect="spark",
+            to_dialect="spark",
+            catalog="cat",
+            schema="mid.sch",
+        )
+        assert "`cat`.`mid`.`sch`.`orders`" in result
+        assert "`cat`.`mid`.`sch`.`customers`" in result
+
+    def test_non_spark_dialect_uses_bare_segments(self):
+        """DuckDB et al. don't get backticks; sqlglot quotes per-dialect."""
+        result = transpile_and_qualify_query(
+            query="SELECT * FROM orders",
+            from_dialect="spark",
+            to_dialect="duckdb",
+            catalog="cat",
+            schema="sch",
+        )
+        assert "`" not in result
+        assert "cat.sch.orders" in result
+
+    def test_cte_reference_is_not_qualified(self):
+        """A CTE name must stay bare; only the real base table is qualified."""
+        result = transpile_and_qualify_query(
+            query="WITH t AS (SELECT * FROM orders) SELECT * FROM t",
+            from_dialect="spark",
+            to_dialect="spark",
+            catalog=None,
+            schema="db",
+        )
+        assert "`db`.`orders`" in result
+        # The final `FROM t` must reference the CTE, not `db`.`t`.
+        assert "`db`.`t`" not in result
+
+    def test_schema_with_leading_or_trailing_dots_tolerated(self):
+        result = transpile_and_qualify_query(
+            query="SELECT * FROM orders",
+            from_dialect="spark",
+            to_dialect="spark",
+            catalog=None,
+            schema="ws..dbo.",
+        )
+        # Empty segments are dropped.
+        assert "`ws`.`dbo`.`orders`" in result
+
+    def test_four_part_name_catalog_and_three_part_schema(self):
+        result = transpile_and_qualify_query(
+            query="SELECT * FROM orders",
+            from_dialect="spark",
+            to_dialect="spark",
+            catalog="cat",
+            schema="a.b.c",
+        )
+        assert "`cat`.`a`.`b`.`c`.`orders`" in result
+
 
 class TestGetTableNameFromDdl:
     def test_simple_create_table(self):

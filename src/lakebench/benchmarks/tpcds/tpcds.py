@@ -1,5 +1,6 @@
 from ...engines.daft import Daft
 from ...engines.duckdb import DuckDB
+from ...engines.livy import Livy
 from ...engines.polars import Polars
 from ...engines.sail import Sail
 from ...engines.spark import Spark
@@ -53,6 +54,7 @@ class TPCDS(_LoadAndQuery):
         Daft: None,
         Polars: None,
         Sail: None,
+        Livy: None,
     }
     BENCHMARK_NAME = "TPCDS"
     TABLE_REGISTRY = [

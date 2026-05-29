@@ -1,16 +1,26 @@
 import importlib.resources
 import inspect
+import logging
 import posixpath
 from typing import List, Optional
 
 from ...engines.base import BaseEngine
 from ...engines.daft import Daft
 from ...engines.duckdb import DuckDB
+from ...engines.livy import Livy
 from ...engines.polars import Polars
 from ...engines.sail import Sail
 from ...engines.spark import Spark
-from ...utils.query_utils import get_table_name_from_ddl, transpile_and_qualify_query
+from ...utils.query_utils import (
+    apply_column_remap,
+    build_column_remap,
+    get_table_name_from_ddl,
+    parse_ddl_columns,
+    transpile_and_qualify_query,
+)
 from ..base import BaseBenchmark
+
+logger = logging.getLogger(__name__)
 
 
 class _LoadAndQuery(BaseBenchmark):
@@ -25,6 +35,7 @@ class _LoadAndQuery(BaseBenchmark):
         Daft: None,
         Polars: None,
         Sail: None,
+        Livy: None,
     }
     MODE_REGISTRY = ["load", "query", "power_test", "load_and_query"]
     BENCHMARK_NAME = ""
@@ -172,8 +183,16 @@ class _LoadAndQuery(BaseBenchmark):
         result_table_uri: Optional[str] = None,
         save_results: bool = False,
         run_id: Optional[str] = None,
+        auto_remap_columns: bool = False,
     ):
         self.scale_factor = scale_factor
+        # When True, the query phase introspects actual table columns and
+        # silently rewrites queries to match columns that differ from the
+        # benchmark spec (e.g. spark-sql-perf's `c_last_review_date` typo).
+        # OFF by default: silently rewriting columns undermines benchmark
+        # reproducibility and can mask real data-prep bugs. Opt in only when
+        # you knowingly run against non-spec data you can't regenerate.
+        self.auto_remap_columns = auto_remap_columns
         super().__init__(engine, scenario_name, input_parquet_folder_uri, result_table_uri, save_results, run_id)
         if query_list is not None:
             expanded_query_list = []
@@ -255,36 +274,8 @@ class _LoadAndQuery(BaseBenchmark):
         self.engine.create_schema_if_not_exists(drop_before_create=True)
         self.engine.create_external_location(self.input_parquet_folder_uri)
 
-        engine_class_name = self.engine.__class__.__name__.lower()
-        parent_class_name = self.engine.__class__.__bases__[0].__name__.lower()
-        benchmark_name = self.__class__.__name__.lower()
-        engine_root_lib_name = self.engine.__class__.__module__.split(".")[0]
-        from_dialect = self.engine.SQLGLOT_DIALECT
-
-        try:
-            # Try to load engine-specific query first
-            with importlib.resources.path(
-                f"{engine_root_lib_name}.benchmarks.{benchmark_name}.resources.ddl.{engine_class_name}",
-                self.DDL_FILE_NAME,
-            ) as ddl_path:
-                with open(ddl_path, "r") as ddl_file:
-                    ddl = ddl_file.read()
-        except (ModuleNotFoundError, FileNotFoundError):
-            # Try parent engine class name if engine-specific fails
-            try:
-                with importlib.resources.path(
-                    f"lakebench.benchmarks.{benchmark_name}.resources.ddl.{parent_class_name}", self.DDL_FILE_NAME
-                ) as ddl_path:
-                    with open(ddl_path, "r") as ddl_file:
-                        ddl = ddl_file.read()
-            except (ModuleNotFoundError, FileNotFoundError):
-                # Fall back to canonical query
-                with importlib.resources.path(
-                    f"lakebench.benchmarks.{benchmark_name}.resources.ddl.canonical", self.DDL_FILE_NAME
-                ) as ddl_path:
-                    with open(ddl_path, "r") as ddl_file:
-                        ddl = ddl_file.read()
-                from_dialect = "spark"
+        ddl, used_canonical = self._load_resource_with_fallback("ddl", self.DDL_FILE_NAME)
+        from_dialect = "spark" if used_canonical else self.engine.SQLGLOT_DIALECT
 
         statements = [s for s in ddl.split(";") if len(s) > 7]
         for statement in statements:
@@ -354,6 +345,34 @@ class _LoadAndQuery(BaseBenchmark):
         if isinstance(self.engine, (DuckDB, Daft, Polars, Sail)):
             for table_name in self.TABLE_REGISTRY:
                 self.engine.register_table(table_name)
+
+        # Auto-detect column name mismatches between DDL spec and actual data.
+        # Disabled unless the caller explicitly opts in (auto_remap_columns):
+        # silently renaming columns at query time hurts reproducibility and can
+        # hide real data bugs (see __init__ docstring).
+        self._column_remap = {}
+        if self.auto_remap_columns:
+            try:
+                actual_schemas = {}
+                for table_name in self.TABLE_REGISTRY:
+                    cols = self.engine.get_table_columns(table_name)
+                    if cols:
+                        actual_schemas[table_name] = [c.lower() for c in cols]
+                if actual_schemas:
+                    ddl_columns = self._get_ddl_columns()
+                    self._column_remap = build_column_remap(ddl_columns, actual_schemas)
+                    if self._column_remap:
+                        logger.warning(
+                            "auto_remap_columns is ON: rewriting %d column(s) because the "
+                            "loaded data differs from the benchmark spec. This changes the "
+                            "queries actually executed and may affect comparability. "
+                            "Remap: %s",
+                            len(self._column_remap),
+                            self._column_remap,
+                        )
+            except Exception as e:
+                logger.warning("Schema introspection skipped: %s", e)
+
         for query_name in self.query_list:
             prepped_query = self._return_query_definition(query_name)
             with self.timer(phase="Query", test_item=query_name, engine=self.engine) as tc:
@@ -382,6 +401,20 @@ class _LoadAndQuery(BaseBenchmark):
         self._run_load_test()
         self._run_query_test()
 
+    def _get_ddl_columns(self) -> dict:
+        """
+        Parse the DDL file and return {table_name: [col1, col2, ...]} with lowercased names.
+        Used for detecting column name mismatches between spec and actual data.
+        """
+        benchmark_name = self.__class__.__name__.lower()
+        # Always use canonical DDL as the reference spec
+        with importlib.resources.path(
+            f"lakebench.benchmarks.{benchmark_name}.resources.ddl.canonical", self.DDL_FILE_NAME
+        ) as ddl_path:
+            with open(ddl_path, "r") as f:
+                ddl_text = f.read()
+        return parse_ddl_columns(ddl_text)
+
     def _return_query_definition(self, query_name: str) -> str:
         """
         Returns the SQL definition for a given query name.
@@ -396,36 +429,8 @@ class _LoadAndQuery(BaseBenchmark):
         str
             The SQL definition for the specified query.
         """
-        engine_class_name = self.engine.__class__.__name__.lower()
-        parent_class_name = self.engine.__class__.__bases__[0].__name__.lower()
-        benchmark_name = self.__class__.__name__.lower()
-        engine_root_lib_name = self.engine.__class__.__module__.split(".")[0]
-        from_dialect = self.engine.SQLGLOT_DIALECT
-
-        try:
-            # Try to load engine-specific query first
-            with importlib.resources.path(
-                f"{engine_root_lib_name}.benchmarks.{benchmark_name}.resources.queries.{engine_class_name}",
-                f"{query_name}.sql",
-            ) as query_path:
-                with open(query_path, "r") as query_file:
-                    query = query_file.read()
-        except (ModuleNotFoundError, FileNotFoundError):
-            # Try parent engine class name if engine-specific fails
-            try:
-                with importlib.resources.path(
-                    f"lakebench.benchmarks.{benchmark_name}.resources.queries.{parent_class_name}", f"{query_name}.sql"
-                ) as query_path:
-                    with open(query_path, "r") as query_file:
-                        query = query_file.read()
-            except (ModuleNotFoundError, FileNotFoundError):
-                # Fall back to canonical query
-                with importlib.resources.path(
-                    f"lakebench.benchmarks.{benchmark_name}.resources.queries.canonical", f"{query_name}.sql"
-                ) as query_path:
-                    with open(query_path, "r") as query_file:
-                        query = query_file.read()
-                from_dialect = "spark"
+        query, used_canonical = self._load_resource_with_fallback("queries", f"{query_name}.sql")
+        from_dialect = "spark" if used_canonical else self.engine.SQLGLOT_DIALECT
 
         prepped_query = transpile_and_qualify_query(
             query=query,
@@ -434,4 +439,9 @@ class _LoadAndQuery(BaseBenchmark):
             catalog=getattr(self.engine, "catalog_name", None),
             schema=getattr(self.engine, "schema_name", None),
         )
+
+        # Apply column remapping if mismatches were detected
+        if getattr(self, "_column_remap", None):
+            prepped_query = apply_column_remap(prepped_query, self._column_remap, self.engine.SQLGLOT_DIALECT)
+
         return prepped_query

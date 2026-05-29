@@ -3,6 +3,7 @@ from typing import List, Optional
 from ...engines.base import BaseEngine
 from ...engines.daft import Daft
 from ...engines.duckdb import DuckDB
+from ...engines.livy import Livy
 from ...engines.polars import Polars
 from ...engines.sail import Sail
 from ...engines.spark import Spark
@@ -58,6 +59,7 @@ class ClickBench(_LoadAndQuery):
         Spark: SparkClickBench,
         DuckDB: DuckDBClickBench,
         Sail: SailClickBench,
+        Livy: None,
         Polars: PolarsClickBench,
         Daft: DaftClickBench,
     }
@@ -119,6 +121,7 @@ class ClickBench(_LoadAndQuery):
         input_parquet_folder_uri: Optional[str] = None,
         result_table_uri: Optional[str] = None,
         save_results: bool = False,
+        auto_remap_columns: bool = False,
     ):
         super().__init__(
             engine=engine,
@@ -128,4 +131,5 @@ class ClickBench(_LoadAndQuery):
             input_parquet_folder_uri=input_parquet_folder_uri,
             result_table_uri=result_table_uri,
             save_results=save_results,
+            auto_remap_columns=auto_remap_columns,
         )

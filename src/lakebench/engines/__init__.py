@@ -4,7 +4,9 @@ from .delta_rs import DeltaRs
 from .duckdb import DuckDB
 from .fabric_spark import FabricSpark
 from .hdi_spark import HDISpark
+from .livy import Livy
 from .polars import Polars
 from .sail import Sail
 from .spark import Spark
+from .spark_connect import SparkConnect
 from .synapse_spark import SynapseSpark
