@@ -1,4 +1,6 @@
 from ._tpc import _TPCDataGenerator
+
+
 class TPCDSDataGenerator(_TPCDataGenerator):
     """
     This class is a wrapper for the DuckDB TPC-DS data generation utility. It generates TPC-DS data in Parquet format
@@ -18,5 +20,6 @@ class TPCDSDataGenerator(_TPCDataGenerator):
     run()
         Generates TPC-DS data in Parquet format based on the input scale factor and writes it to the target folder.
     """
-    GEN_UTIL = 'dsdgen'
-    GEN_TYPE = 'tpds'
+
+    GEN_UTIL = "dsdgen"
+    GEN_TYPE = "tpds"

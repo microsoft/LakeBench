@@ -7,12 +7,11 @@ authors = [
 license = {file = "LICENSE"}
 description = "A multi-modal Python library for benchmarking Azure lakehouse engines and ELT scenarios, supporting both industry-standard and novel benchmarks."
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -25,19 +24,19 @@ dependencies = [
     "numpy>=1.24.4",
     "sqlglot==26.30.0",
     "fsspec==2025.2.0",
-    "tenacity>=8.2.3,<9; python_version < '3.9'",
-    "tenacity==9.1.2; python_version >= '3.9'"
+    "pyarrow>=15.0.0",
+    "tenacity==9.1.2",
 ]
 
 [project.optional-dependencies]
-duckdb = ["duckdb==1.4.4; python_version >= '3.9'", "deltalake==1.3.3; python_version >= '3.10'", "pyarrow>=15.0.0; python_version >= '3.9'"]
-polars = ["polars==1.38.1; python_version >= '3.10'", "deltalake==1.3.3; python_version >= '3.10'", "pyarrow>=15.0.0; python_version >= '3.9'"]
-daft = ["daft==0.7.3; python_version >= '3.10'", "deltalake==1.3.3; python_version >= '3.10'", "pyarrow>=15.0.0; python_version >= '3.10'"]
-tpcds_datagen = ["duckdb==1.4.4; python_version >= '3.9'", "pyarrow>=15.0.0; python_version >= '3.9'"]
+duckdb = ["duckdb==1.4.4", "deltalake==1.3.3; python_version >= '3.10'", "pyarrow>=15.0.0"]
+polars = ["polars==1.38.1; python_version >= '3.10'", "deltalake==1.3.3; python_version >= '3.10'", "pyarrow>=15.0.0"]
+daft = ["daft==0.7.3; python_version >= '3.10'", "deltalake==1.3.3; python_version >= '3.10'", "pyarrow>=15.0.0"]
+tpcds_datagen = ["duckdb==1.4.4", "pyarrow>=15.0.0"]
 tpch_datagen = ["tpchgen-cli>=2.0.1"]
 sparkmeasure = ["sparkmeasure==0.24.0"]
-spark = ["pyspark>=3.5.0,<4.0.0; python_version >= '3.9'", "delta-spark>=3.2.0,<4.0.0; python_version >= '3.9'", "pyarrow>=15.0.0; python_version >= '3.9'"]
-sail = ["pysail>=0.5.2; python_version >= '3.10'", "pyspark[connect]>=4.0.0; python_version >= '3.9'", "deltalake>=1.2.1; python_version >= '3.9'", "pyarrow>=15.0.0; python_version >= '3.9'"]
+spark = ["pyspark>=3.5.0,<4.0.0", "delta-spark>=3.2.0,<4.0.0", "pyarrow>=15.0.0"]
+sail = ["pysail>=0.5.2; python_version >= '3.10'", "pyspark[connect]>=4.0.0", "deltalake>=1.2.1", "pyarrow>=15.0.0"]
 
 [project.urls]
 github = "https://github.com/mwc360/LakeBench"
@@ -54,7 +53,48 @@ packages = ["src/lakebench"]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "ruff>=0.6.0",
+    "pre-commit>=3.5.0",
 ]
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+src = ["src", "tests"]
+extend-exclude = [
+    ".venv",
+    "metastore_db",
+    "src/lakebench/benchmarks/*/resources",
+]
+
+[tool.ruff.lint]
+# Conservative starter set — formatting + obvious bugs only.
+# Expand later (UP, B, SIM, ANN) once the codebase is clean.
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort
+    "W",   # pycodestyle warnings
+]
+ignore = [
+    "E501",  # line-too-long (line-length is advisory; many SQL strings are wide)
+    "E731",  # lambda assignments (used intentionally in a few places)
+    "E741",  # ambiguous variable name
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # re-exports
+"tests/**" = ["F401", "F811", "F841", "E712"]  # fixtures + assertion patterns
+"scripts/**" = ["E402", "F401", "F841"]  # ad-hoc scripts
+# Trailing whitespace inside multi-line SQL string literals is intentional/
+# harmless and NOT touched by `ruff format` (it only formats code, not string
+# contents). Keep ignoring W291/W293 globally so the embedded-SQL engines pass.
+"*.py" = ["W291", "W293"]
+# Engine-specific DataFrame DSLs intentionally use `col == True` to build expressions,
+# and assign `result =`/`df =` to force lazy evaluation.
+"src/lakebench/benchmarks/tpcdi/engine_impl/*.py" = ["E712", "F841"]
+"src/lakebench/benchmarks/elt_bench/engine_impl/*.py" = ["F841"]
+"src/lakebench/engines/*.py" = ["F841"]
 
 [tool.uv]
 conflicts = [
