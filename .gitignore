@@ -79,3 +79,6 @@ __lakebench_cli_cache__/
 # Optional: Docs builds
 site/
 docs/_build/
+
+# Personal scratch / scratchpads (workspace-specific drivers, demo captures)
+scratch/

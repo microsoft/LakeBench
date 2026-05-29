@@ -1,27 +1,25 @@
-from .base import BaseEngine
-from .delta_rs import DeltaRs
-from ..utils.path_utils import to_file_uri, _REMOTE_SCHEMES
-
 import os
 import pathlib
 import posixpath
 from importlib.metadata import version
-from typing import Any, Optional
+from typing import Optional
+
+from ..utils.path_utils import _REMOTE_SCHEMES, to_file_uri
+from .base import BaseEngine
+from .delta_rs import DeltaRs
+
 
 class Daft(BaseEngine):
     """
     Daft Engine
     """
+
     SQLGLOT_DIALECT = "mysql"
     SUPPORTS_ONELAKE = False
     SUPPORTS_SCHEMA_PREP = False
     SUPPORTS_MOUNT_PATH = False
 
-    def __init__(
-            self, 
-            schema_or_working_directory_uri: str,
-            cost_per_vcore_hour: Optional[float] = None
-            ):
+    def __init__(self, schema_or_working_directory_uri: str, cost_per_vcore_hour: Optional[float] = None):
         """
         Parameters
         ----------
@@ -35,7 +33,8 @@ class Daft(BaseEngine):
 
         super().__init__(schema_or_working_directory_uri)
         import daft
-        from daft.io import IOConfig, AzureConfig
+        from daft.io import AzureConfig, IOConfig
+
         self.daft = daft
         self.deltars = DeltaRs()
         self.catalog_name = None
@@ -45,18 +44,20 @@ class Daft(BaseEngine):
             self.daft.set_planning_config(default_io_config=io_config)
 
         if not self.SUPPORTS_ONELAKE:
-            if 'onelake.' in self.schema_or_working_directory_uri:
-                raise ValueError(
-                    "Daft engine does not support OneLake paths. Provide an ADLS Gen2 path instead."
-                )
-            
+            if "onelake." in self.schema_or_working_directory_uri:
+                raise ValueError("Daft engine does not support OneLake paths. Provide an ADLS Gen2 path instead.")
+
         self.version: str = f"{version('daft')} (deltalake=={version('deltalake')})"
-        self.cost_per_vcore_hour = cost_per_vcore_hour or getattr(self, '_autocalc_usd_cost_per_vcore_hour', None)
-        
-    def load_parquet_to_delta(self, parquet_folder_uri: str, table_name: str, table_is_precreated: bool = False, context_decorator: Optional[str] = None):
-        table_df = self.daft.read_parquet(
-            posixpath.join(parquet_folder_uri)
-        )
+        self.cost_per_vcore_hour = cost_per_vcore_hour or getattr(self, "_autocalc_usd_cost_per_vcore_hour", None)
+
+    def load_parquet_to_delta(
+        self,
+        parquet_folder_uri: str,
+        table_name: str,
+        table_is_precreated: bool = False,
+        context_decorator: Optional[str] = None,
+    ):
+        table_df = self.daft.read_parquet(posixpath.join(parquet_folder_uri))
         raw_path = posixpath.join(self.schema_or_working_directory_uri, table_name)
         is_local = not any(raw_path.startswith(s) for s in _REMOTE_SCHEMES)
         # Daft 0.7.x requires the target directory to exist for local paths
@@ -82,12 +83,11 @@ class Daft(BaseEngine):
         is_local = not any(table_path.startswith(s) for s in _REMOTE_SCHEMES)
         if is_local:
             from deltalake import DeltaTable
+
             file_uris = DeltaTable(table_path).file_uris()
             globals()[table_name] = self.daft.read_parquet(file_uris)
         else:
-            globals()[table_name] = self.daft.read_deltalake(
-                to_file_uri(table_path)
-            )
+            globals()[table_name] = self.daft.read_deltalake(to_file_uri(table_path))
 
     def execute_sql_query(self, query: str, context_decorator: Optional[str] = None):
         """

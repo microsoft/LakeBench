@@ -1,5 +1,5 @@
+from .base import BaseBenchmark
 from .clickbench import ClickBench
+from .elt_bench import ELTBench
 from .tpcds import TPCDS
 from .tpch import TPCH
-from .elt_bench import ELTBench
-from .base import BaseBenchmark
