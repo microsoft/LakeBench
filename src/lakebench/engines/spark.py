@@ -71,11 +71,12 @@ class Spark(BaseEngine):
 
         if compute_stats_all_cols:
             import warnings
+
             warnings.warn(
                 "The 'compute_stats_all_cols' parameter on Spark is deprecated. "
                 "Use the 'analyze' parameter on the benchmark class (e.g., TPCH(..., analyze=True)) instead.",
                 DeprecationWarning,
-                stacklevel=2
+                stacklevel=2,
             )
         from pyspark.sql import SparkSession
 
@@ -218,8 +219,9 @@ class Spark(BaseEngine):
         ``PARTITIONED BY``, ``CLUSTER BY``, or ``TBLPROPERTIES`` clauses by
         inserting ``USING delta`` in the correct position.
         """
-        if 'using ' not in ddl.lower():
+        if "using " not in ddl.lower():
             import sqlglot
+
             expression = sqlglot.parse_one(ddl, dialect="spark")
             create_node = expression.find(sqlglot.exp.Create)
             if create_node is not None:
@@ -389,7 +391,9 @@ class Spark(BaseEngine):
         self.spark.sql(f"OPTIMIZE {self.full_catalog_schema_reference}.{table_name}")
 
     def analyze_table(self, table_name: str):
-        self.spark.sql(f"ANALYZE TABLE {self.full_catalog_schema_reference}.{table_name} COMPUTE STATISTICS FOR ALL COLUMNS")
+        self.spark.sql(
+            f"ANALYZE TABLE {self.full_catalog_schema_reference}.{table_name} COMPUTE STATISTICS FOR ALL COLUMNS"
+        )
 
     def vacuum_table(self, table_name: str, retain_hours: int = 168, retention_check: bool = True):
         self.spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", retention_check)

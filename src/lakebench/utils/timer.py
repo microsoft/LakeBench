@@ -20,12 +20,15 @@ def _has_spark_context(engine):
 
 
 @contextmanager
-def timer(phase: str = "Elapsed time", test_item: str = '', engine: str = None, sub_phase: str = None):
+def timer(phase: str = "Elapsed time", test_item: str = "", engine: str = None, sub_phase: str = None):
     if not hasattr(timer, "results"):
         timer.results = []
 
-    iteration = sum(1 for result in timer.results if result[0] == phase and result[1] == test_item and result[2] == sub_phase) + 1
-    
+    iteration = (
+        sum(1 for result in timer.results if result[0] == phase and result[1] == test_item and result[2] == sub_phase)
+        + 1
+    )
+
     class TimerContext:
         def __init__(self, phase: str, test_item: str, iteration: int):
             self.execution_telemetry = {}
@@ -79,15 +82,15 @@ def timer(phase: str = "Elapsed time", test_item: str = '', engine: str = None, 
 
         timer.results.append(
             (
-                phase, 
-                test_item, 
+                phase,
+                test_item,
                 sub_phase,
-                start_datetime, 
-                duration, 
-                iteration, 
-                success, 
-                f"{error_type}: {error_message}" if error_message else '', 
-                timer_context.execution_telemetry
+                start_datetime,
+                duration,
+                iteration,
+                success,
+                f"{error_type}: {error_message}" if error_message else "",
+                timer_context.execution_telemetry,
             )
         )
 

@@ -158,33 +158,32 @@ class _LoadAndQuery(BaseBenchmark):
         "q98",
         "q99",
     ]
-    DDL_FILE_NAME = ''
+    DDL_FILE_NAME = ""
     DDL_VARIANT_REGISTRY: Dict[str, str] = {}
-    VERSION = ''
+    VERSION = ""
 
     def __init__(
-            self, 
-            engine: BaseEngine, 
-            scenario_name: str,
-            scale_factor: Optional[int] = None,
-            query_list: Optional[List[str]] = None,
-            input_parquet_folder_uri: Optional[str] = None,
-            result_table_uri: Optional[str] = None,
-            save_results: bool = False,
-            run_id: Optional[str] = None,
-            ddl_variant: Optional[str] = None,
-            ddl_override: Optional[str] = None,
-            ddl_override_dialect: Optional[str] = 'spark',
-            optimize: bool = False,
-            analyze: bool = False
-            ):
+        self,
+        engine: BaseEngine,
+        scenario_name: str,
+        scale_factor: Optional[int] = None,
+        query_list: Optional[List[str]] = None,
+        input_parquet_folder_uri: Optional[str] = None,
+        result_table_uri: Optional[str] = None,
+        save_results: bool = False,
+        run_id: Optional[str] = None,
+        ddl_variant: Optional[str] = None,
+        ddl_override: Optional[str] = None,
+        ddl_override_dialect: Optional[str] = "spark",
+        optimize: bool = False,
+        analyze: bool = False,
+    ):
         if ddl_variant is not None and ddl_override is not None:
             raise ValueError("'ddl_variant' and 'ddl_override' are mutually exclusive. Provide one or neither.")
         if ddl_variant is not None and ddl_variant not in self.DDL_VARIANT_REGISTRY:
             available = list(self.DDL_VARIANT_REGISTRY.keys())
             raise ValueError(
-                f"Unknown DDL variant '{ddl_variant}'. "
-                f"Available variants for {self.__class__.__name__}: {available}"
+                f"Unknown DDL variant '{ddl_variant}'. Available variants for {self.__class__.__name__}: {available}"
             )
 
         self._ddl_variant = ddl_variant
@@ -195,17 +194,17 @@ class _LoadAndQuery(BaseBenchmark):
         super().__init__(engine, scenario_name, input_parquet_folder_uri, result_table_uri, save_results, run_id)
 
         if ddl_override is not None:
-            ddl_variant_label = 'custom'
+            ddl_variant_label = "custom"
         elif ddl_variant is not None:
             ddl_variant_label = ddl_variant
         else:
-            ddl_variant_label = 'default'
-        self.engine.extended_engine_metadata['ddl_variant'] = ddl_variant_label
+            ddl_variant_label = "default"
+        self.engine.extended_engine_metadata["ddl_variant"] = ddl_variant_label
 
         self.optimize = optimize
         self.analyze = analyze
-        self.engine.extended_engine_metadata['optimize'] = str(optimize)
-        self.engine.extended_engine_metadata['analyze'] = str(analyze)
+        self.engine.extended_engine_metadata["optimize"] = str(optimize)
+        self.engine.extended_engine_metadata["analyze"] = str(analyze)
 
         if query_list is not None:
             expanded_query_list = []
@@ -294,45 +293,41 @@ class _LoadAndQuery(BaseBenchmark):
             from_dialect = self._ddl_override_dialect
         else:
             ddl_file_name = (
-                self.DDL_VARIANT_REGISTRY[self._ddl_variant]
-                if self._ddl_variant is not None
-                else self.DDL_FILE_NAME
+                self.DDL_VARIANT_REGISTRY[self._ddl_variant] if self._ddl_variant is not None else self.DDL_FILE_NAME
             )
 
             engine_class_name = self.engine.__class__.__name__.lower()
             parent_class_name = self.engine.__class__.__bases__[0].__name__.lower()
             benchmark_name = self.__class__.__name__.lower()
-            engine_root_lib_name = self.engine.__class__.__module__.split('.')[0]
+            engine_root_lib_name = self.engine.__class__.__module__.split(".")[0]
             from_dialect = self.engine.SQLGLOT_DIALECT
 
             try:
                 # Try to load engine-specific DDL first
                 with importlib.resources.path(
-                    f"{engine_root_lib_name}.benchmarks.{benchmark_name}.resources.ddl.{engine_class_name}", 
-                    ddl_file_name
+                    f"{engine_root_lib_name}.benchmarks.{benchmark_name}.resources.ddl.{engine_class_name}",
+                    ddl_file_name,
                 ) as ddl_path:
-                    with open(ddl_path, 'r') as ddl_file:
-                        ddl = ddl_file.read()                
+                    with open(ddl_path, "r") as ddl_file:
+                        ddl = ddl_file.read()
             except (ModuleNotFoundError, FileNotFoundError):
                 # Try parent engine class name if engine-specific fails
                 try:
                     with importlib.resources.path(
-                        f"lakebench.benchmarks.{benchmark_name}.resources.ddl.{parent_class_name}", 
-                        ddl_file_name
+                        f"lakebench.benchmarks.{benchmark_name}.resources.ddl.{parent_class_name}", ddl_file_name
                     ) as ddl_path:
-                        with open(ddl_path, 'r') as ddl_file:
+                        with open(ddl_path, "r") as ddl_file:
                             ddl = ddl_file.read()
                 except (ModuleNotFoundError, FileNotFoundError):
                     # Fall back to canonical DDL
                     with importlib.resources.path(
-                        f"lakebench.benchmarks.{benchmark_name}.resources.ddl.canonical", 
-                        ddl_file_name
+                        f"lakebench.benchmarks.{benchmark_name}.resources.ddl.canonical", ddl_file_name
                     ) as ddl_path:
-                        with open(ddl_path, 'r') as ddl_file:
+                        with open(ddl_path, "r") as ddl_file:
                             ddl = ddl_file.read()
-                    from_dialect = 'spark'
+                    from_dialect = "spark"
 
-        statements = [s for s in ddl.split(';') if len(s) > 7]
+        statements = [s for s in ddl.split(";") if len(s) > 7]
         for statement in statements:
             prepped_ddl = transpile_and_qualify_query(
                 query=statement,

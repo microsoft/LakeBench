@@ -247,7 +247,7 @@ class BaseEngine(ABC):
             If the engine does not support ANALYZE operations.
         """
         raise NotImplementedError(f"{type(self).__name__} does not support analyze_table().")
-    
+
     def create_schema_if_not_exists(self, drop_before_create: bool = True):
         if drop_before_create:
             if self.fs.exists(self.schema_or_working_directory_uri):

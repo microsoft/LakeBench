@@ -48,29 +48,29 @@ class BaseBenchmark(ABC):
 
     BENCHMARK_IMPL_REGISTRY: Dict[Type[BaseEngine], Type] = {}
     RESULT_SCHEMA = [
-        ('run_id', 'STRING'),
-        ('run_datetime', 'TIMESTAMP'),
-        ('lakebench_version', 'STRING'),
-        ('engine', 'STRING'),
-        ('engine_version', 'STRING'),
-        ('benchmark', 'STRING'),
-        ('benchmark_version', 'STRING'),
-        ('mode', 'STRING'),
-        ('scale_factor', 'INT'),
-        ('scenario', 'STRING'),
-        ('total_cores', 'SMALLINT'),
-        ('compute_size', 'STRING'),
-        ('phase', 'STRING'),
-        ('sub_phase', 'STRING'),
-        ('test_item', 'STRING'),
-        ('start_datetime', 'TIMESTAMP'),
-        ('duration_ms', 'INT'),
-        ('estimated_retail_job_cost', 'DECIMAL(18,10)'),
-        ('iteration', 'TINYINT'),
-        ('success', 'BOOLEAN'),
-        ('error_message', 'STRING'),
-        ('engine_properties', 'MAP<STRING, STRING>'),      # Additional Platform configs/metadata
-        ('execution_telemetry', 'MAP<STRING, STRING>')    # Test-item execution details
+        ("run_id", "STRING"),
+        ("run_datetime", "TIMESTAMP"),
+        ("lakebench_version", "STRING"),
+        ("engine", "STRING"),
+        ("engine_version", "STRING"),
+        ("benchmark", "STRING"),
+        ("benchmark_version", "STRING"),
+        ("mode", "STRING"),
+        ("scale_factor", "INT"),
+        ("scenario", "STRING"),
+        ("total_cores", "SMALLINT"),
+        ("compute_size", "STRING"),
+        ("phase", "STRING"),
+        ("sub_phase", "STRING"),
+        ("test_item", "STRING"),
+        ("start_datetime", "TIMESTAMP"),
+        ("duration_ms", "INT"),
+        ("estimated_retail_job_cost", "DECIMAL(18,10)"),
+        ("iteration", "TINYINT"),
+        ("success", "BOOLEAN"),
+        ("error_message", "STRING"),
+        ("engine_properties", "MAP<STRING, STRING>"),  # Additional Platform configs/metadata
+        ("execution_telemetry", "MAP<STRING, STRING>"),  # Test-item execution details
     ]
     VERSION = ""
 
@@ -158,18 +158,18 @@ class BaseBenchmark(ABC):
         result_array = [
             {
                 **self.header_detail_dict,
-                'mode': self.mode.lower() if self.mode else None,
-                'phase': phase,
-                'sub_phase': sub_phase,
-                'test_item': test_item,
-                'start_datetime': start_datetime,
-                'duration_ms': duration_ms,
-                'estimated_retail_job_cost': self.engine.get_job_cost(duration_ms), 
-                'iteration': iteration,
-                'success': success,
-                'error_message': error_message,
-                'engine_properties': self.engine.extended_engine_metadata,
-                'execution_telemetry': execution_telemetry
+                "mode": self.mode.lower() if self.mode else None,
+                "phase": phase,
+                "sub_phase": sub_phase,
+                "test_item": test_item,
+                "start_datetime": start_datetime,
+                "duration_ms": duration_ms,
+                "estimated_retail_job_cost": self.engine.get_job_cost(duration_ms),
+                "iteration": iteration,
+                "success": success,
+                "error_message": error_message,
+                "engine_properties": self.engine.extended_engine_metadata,
+                "execution_telemetry": execution_telemetry,
             }
             for phase, test_item, sub_phase, start_datetime, duration_ms, iteration, success, error_message, execution_telemetry in self.timer.results
         ]

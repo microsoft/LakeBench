@@ -76,10 +76,10 @@ class TPCH(_LoadAndQuery):
         "q21",
         "q22",
     ]
-    DDL_FILE_NAME = 'ddl_v3.0.1.sql'
+    DDL_FILE_NAME = "ddl_v3.0.1.sql"
     DDL_VARIANT_REGISTRY = {
-        'partitioned': 'ddl_v3.0.1.partitioned.sql',
-        'clustered': 'ddl_v3.0.1.clustered.sql',
-        'simple': 'ddl_v3.0.1.simple.sql',
+        "partitioned": "ddl_v3.0.1.partitioned.sql",
+        "clustered": "ddl_v3.0.1.clustered.sql",
+        "simple": "ddl_v3.0.1.simple.sql",
     }
-    VERSION = '3.0.1'
+    VERSION = "3.0.1"

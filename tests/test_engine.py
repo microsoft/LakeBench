@@ -103,6 +103,7 @@ class _MockSpark:
 def _make_spark_engine():
     """Create a Spark engine instance that captures DDL without PySpark."""
     from lakebench.engines.spark import Spark
+
     engine = object.__new__(Spark)
     engine.executed_statements = []
     engine.version = "test"
@@ -115,7 +116,9 @@ def _make_spark_engine():
     engine.runtime = "local_unknown"
     engine.operating_system = engine._detect_os()
 
-    original_execute = engine.execute_sql_statement.__func__ if hasattr(engine.execute_sql_statement, '__func__') else None
+    original_execute = (
+        engine.execute_sql_statement.__func__ if hasattr(engine.execute_sql_statement, "__func__") else None
+    )
     engine.execute_sql_statement = lambda ddl: engine.executed_statements.append(ddl)
     return engine
 

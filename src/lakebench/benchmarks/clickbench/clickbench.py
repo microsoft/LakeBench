@@ -112,17 +112,17 @@ class ClickBench(_LoadAndQuery):
     VERSION = "UNKNOWN"
 
     def __init__(
-            self, 
-            engine: BaseEngine, 
-            scenario_name: str,
-            query_list: Optional[List[str]] = None,
-            input_parquet_folder_uri: Optional[str] = None,
-            result_table_uri: Optional[str] = None,
-            save_results: bool = False,
-            ddl_variant: Optional[str] = None,
-            ddl_override: Optional[str] = None,
-            ddl_override_dialect: Optional[str] = 'spark'
-        ):
+        self,
+        engine: BaseEngine,
+        scenario_name: str,
+        query_list: Optional[List[str]] = None,
+        input_parquet_folder_uri: Optional[str] = None,
+        result_table_uri: Optional[str] = None,
+        save_results: bool = False,
+        ddl_variant: Optional[str] = None,
+        ddl_override: Optional[str] = None,
+        ddl_override_dialect: Optional[str] = "spark",
+    ):
         super().__init__(
             engine=engine,
             scenario_name=scenario_name,
@@ -133,5 +133,5 @@ class ClickBench(_LoadAndQuery):
             save_results=save_results,
             ddl_variant=ddl_variant,
             ddl_override=ddl_override,
-            ddl_override_dialect=ddl_override_dialect
+            ddl_override_dialect=ddl_override_dialect,
         )

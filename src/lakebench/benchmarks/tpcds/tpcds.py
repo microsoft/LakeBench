@@ -186,10 +186,10 @@ class TPCDS(_LoadAndQuery):
         "q98",
         "q99",
     ]
-    DDL_FILE_NAME = 'ddl_v3.2.0.sql'
+    DDL_FILE_NAME = "ddl_v3.2.0.sql"
     DDL_VARIANT_REGISTRY = {
-        'partitioned': 'ddl_v3.2.0.partitioned.sql',
-        'clustered': 'ddl_v3.2.0.clustered.sql',
-        'simple': 'ddl_v3.2.0.simple.sql',
+        "partitioned": "ddl_v3.2.0.partitioned.sql",
+        "clustered": "ddl_v3.2.0.clustered.sql",
+        "simple": "ddl_v3.2.0.simple.sql",
     }
-    VERSION = '3.2.0'
+    VERSION = "3.2.0"
