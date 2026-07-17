@@ -1,6 +1,11 @@
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
+
 from lakebench.benchmarks._load_and_query._load_and_query import _LoadAndQuery
+from lakebench.benchmarks.clickbench import ClickBench
+from lakebench.benchmarks.tpcds import TPCDS
+from lakebench.benchmarks.tpch import TPCH
 from lakebench.engines.base import BaseEngine
 
 
@@ -36,6 +41,10 @@ class _StubBenchmark(_LoadAndQuery):
     DDL_VARIANT_REGISTRY = {
         "partitioned": "ddl_test.partitioned.sql",
         "clustered": "ddl_test.clustered.sql",
+    }
+    ANALYZE_COLUMN_REGISTRY = {
+        "table_a": ["id", "value"],
+        "table_b": ["id"],
     }
     VERSION = "1.0"
 
@@ -148,10 +157,13 @@ class TestBackwardCompatibility:
 
 
 class TestOptimizeAnalyzeFlags:
-    def test_defaults_false(self):
+    def test_clickbench_exposes_flags(self):
+        assert "analyze" in ClickBench.__init__.__annotations__
+
+    def test_defaults_none(self):
         bench = _make_benchmark()
         assert bench.optimize is False
-        assert bench.analyze is False
+        assert bench.analyze == "none"
 
     def test_optimize_flag_stored(self):
         bench = _make_benchmark(optimize=True)
@@ -160,17 +172,77 @@ class TestOptimizeAnalyzeFlags:
 
     def test_analyze_flag_stored(self):
         bench = _make_benchmark(analyze=True)
-        assert bench.analyze is True
-        assert bench.engine.extended_engine_metadata["analyze"] == "True"
+        assert bench.analyze == "full"
+        assert bench.engine.extended_engine_metadata["analyze"] == "full"
 
     def test_both_flags_stored(self):
         bench = _make_benchmark(optimize=True, analyze=True)
         assert bench.optimize is True
-        assert bench.analyze is True
+        assert bench.analyze == "full"
         assert bench.engine.extended_engine_metadata["optimize"] == "True"
-        assert bench.engine.extended_engine_metadata["analyze"] == "True"
+        assert bench.engine.extended_engine_metadata["analyze"] == "full"
 
     def test_metadata_records_false(self):
         bench = _make_benchmark(optimize=False, analyze=False)
         assert bench.engine.extended_engine_metadata["optimize"] == "False"
-        assert bench.engine.extended_engine_metadata["analyze"] == "False"
+        assert bench.engine.extended_engine_metadata["analyze"] == "none"
+
+    def test_selective_mode_stored(self):
+        bench = _make_benchmark(analyze="selective")
+        assert bench.analyze == "selective"
+        assert bench.engine.extended_engine_metadata["analyze"] == "selective"
+
+    def test_invalid_mode_raises(self):
+        with pytest.raises(ValueError, match="'analyze' must be one of"):
+            _make_benchmark(analyze="invalid")
+
+    def test_invalid_mode_type_raises(self):
+        with pytest.raises(ValueError, match="'analyze' must be one of"):
+            _make_benchmark(analyze=1)
+
+    def test_selective_requires_complete_registry(self):
+        with pytest.raises(ValueError, match="Selective analysis is not configured"):
+            ClickBench(
+                engine=_StubEngine(),
+                scenario_name="test",
+                input_parquet_folder_uri="/tmp/parquet",
+                analyze="selective",
+            )
+
+    def test_selective_mode_routes_registered_columns(self):
+        bench = _make_benchmark(analyze="selective")
+        bench._prepare_schema = MagicMock()
+        bench.engine.load_parquet_to_delta = MagicMock()
+        bench.engine.analyze_table = MagicMock(return_value={"statistics_created": "1"})
+
+        bench._run_load_test()
+
+        assert bench.engine.analyze_table.call_args_list == [
+            ((table_name,), {"columns": columns})
+            for table_name, columns in bench.ANALYZE_COLUMN_REGISTRY.items()
+        ]
+
+    def test_full_mode_preserves_legacy_engine_signature(self):
+        bench = _make_benchmark(analyze="full")
+        bench._prepare_schema = MagicMock()
+        bench.engine.load_parquet_to_delta = MagicMock()
+        analyzed_tables = []
+        bench.engine.analyze_table = analyzed_tables.append
+
+        bench._run_load_test()
+
+        assert analyzed_tables == bench.TABLE_REGISTRY
+
+
+class TestAnalyzeColumnRegistries:
+    def test_tpch_registry_matches_source_script(self):
+        assert set(TPCH.ANALYZE_COLUMN_REGISTRY) == set(TPCH.TABLE_REGISTRY)
+        assert sum(map(len, TPCH.ANALYZE_COLUMN_REGISTRY.values())) == 48
+
+    def test_tpcds_registry_matches_source_script(self):
+        assert set(TPCDS.ANALYZE_COLUMN_REGISTRY) == set(TPCDS.TABLE_REGISTRY)
+        assert sum(map(len, TPCDS.ANALYZE_COLUMN_REGISTRY.values())) == 227
+
+    def test_shared_customer_table_has_benchmark_specific_columns(self):
+        assert "c_custkey" in TPCH.ANALYZE_COLUMN_REGISTRY["customer"]
+        assert "c_customer_sk" in TPCDS.ANALYZE_COLUMN_REGISTRY["customer"]

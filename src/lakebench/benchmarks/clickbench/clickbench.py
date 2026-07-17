@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Literal, Optional, Union
 
 from ...engines.base import BaseEngine
 from ...engines.daft import Daft
@@ -122,6 +122,8 @@ class ClickBench(_LoadAndQuery):
         ddl_variant: Optional[str] = None,
         ddl_override: Optional[str] = None,
         ddl_override_dialect: Optional[str] = "spark",
+        optimize: bool = False,
+        analyze: Union[bool, Literal["none", "full", "selective"]] = "none",
     ):
         super().__init__(
             engine=engine,
@@ -134,4 +136,6 @@ class ClickBench(_LoadAndQuery):
             ddl_variant=ddl_variant,
             ddl_override=ddl_override,
             ddl_override_dialect=ddl_override_dialect,
+            optimize=optimize,
+            analyze=analyze,
         )

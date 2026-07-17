@@ -1,6 +1,6 @@
 import os
 import posixpath
-from typing import Optional
+from typing import Optional, Sequence
 
 import tenacity
 
@@ -78,6 +78,7 @@ class Spark(BaseEngine):
                 DeprecationWarning,
                 stacklevel=2,
             )
+        import pyspark.sql.functions as sf
         from pyspark.sql import SparkSession
 
         self.sf = sf
@@ -390,9 +391,19 @@ class Spark(BaseEngine):
     def optimize_table(self, table_name: str):
         self.spark.sql(f"OPTIMIZE {self.full_catalog_schema_reference}.{table_name}")
 
-    def analyze_table(self, table_name: str):
+    def analyze_table(self, table_name: str, columns: Optional[Sequence[str]] = None):
+        if isinstance(columns, (str, bytes)):
+            raise TypeError("'columns' must be a sequence of column names, not a string.")
+        if columns is not None and not columns:
+            raise ValueError("At least one column is required for selective analysis.")
+        column_clause = (
+            "ALL COLUMNS"
+            if columns is None
+            else "COLUMNS " + ", ".join(f"`{column.replace('`', '``')}`" for column in columns)
+        )
         self.spark.sql(
-            f"ANALYZE TABLE {self.full_catalog_schema_reference}.{table_name} COMPUTE STATISTICS FOR ALL COLUMNS"
+            f"ANALYZE TABLE {self.full_catalog_schema_reference}.{table_name} "
+            f"COMPUTE STATISTICS FOR {column_clause}"
         )
 
     def vacuum_table(self, table_name: str, retain_hours: int = 168, retention_check: bool = True):

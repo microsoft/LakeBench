@@ -1,6 +1,7 @@
-from typing import Dict, List, Optional
-from ..base import BaseBenchmark
-from ...utils.query_utils import transpile_and_qualify_query, get_table_name_from_ddl
+import importlib.resources
+import inspect
+import posixpath
+from typing import Dict, List, Literal, Optional, Union
 
 from ...engines.base import BaseEngine
 from ...engines.daft import Daft
@@ -160,6 +161,7 @@ class _LoadAndQuery(BaseBenchmark):
     ]
     DDL_FILE_NAME = ""
     DDL_VARIANT_REGISTRY: Dict[str, str] = {}
+    ANALYZE_COLUMN_REGISTRY: Dict[str, List[str]] = {}
     VERSION = ""
 
     def __init__(
@@ -176,7 +178,7 @@ class _LoadAndQuery(BaseBenchmark):
         ddl_override: Optional[str] = None,
         ddl_override_dialect: Optional[str] = "spark",
         optimize: bool = False,
-        analyze: bool = False,
+        analyze: Union[bool, Literal["none", "full", "selective"]] = "none",
     ):
         if ddl_variant is not None and ddl_override is not None:
             raise ValueError("'ddl_variant' and 'ddl_override' are mutually exclusive. Provide one or neither.")
@@ -202,9 +204,29 @@ class _LoadAndQuery(BaseBenchmark):
         self.engine.extended_engine_metadata["ddl_variant"] = ddl_variant_label
 
         self.optimize = optimize
-        self.analyze = analyze
+        if isinstance(analyze, bool):
+            analyze_mode = "full" if analyze else "none"
+        elif isinstance(analyze, str):
+            analyze_mode = analyze.lower()
+        else:
+            raise ValueError("'analyze' must be one of: 'none', 'full', or 'selective'.")
+        if analyze_mode not in ("none", "full", "selective"):
+            raise ValueError("'analyze' must be one of: 'none', 'full', or 'selective'.")
+        if analyze_mode == "selective":
+            missing_tables = {
+                table_name
+                for table_name in self.TABLE_REGISTRY
+                if not self.ANALYZE_COLUMN_REGISTRY.get(table_name)
+            }
+            if missing_tables:
+                raise ValueError(
+                    f"Selective analysis is not configured for {self.__class__.__name__} tables: "
+                    f"{sorted(missing_tables)}"
+                )
+
+        self.analyze = analyze_mode
         self.engine.extended_engine_metadata["optimize"] = str(optimize)
-        self.engine.extended_engine_metadata["analyze"] = str(analyze)
+        self.engine.extended_engine_metadata["analyze"] = analyze_mode
 
         if query_list is not None:
             expanded_query_list = []
@@ -388,10 +410,17 @@ class _LoadAndQuery(BaseBenchmark):
                 with self.timer(phase="Load", sub_phase="optimize", test_item=table_name, engine=self.engine):
                     self.engine.optimize_table(table_name)
 
-        if self.analyze:
+        if self.analyze != "none":
             for table_name in self.TABLE_REGISTRY:
-                with self.timer(phase="Load", sub_phase="analyze", test_item=table_name, engine=self.engine):
-                    self.engine.analyze_table(table_name)
+                with self.timer(
+                    phase="Load", sub_phase="analyze", test_item=table_name, engine=self.engine
+                ) as tc:
+                    if self.analyze == "selective":
+                        tc.execution_telemetry = self.engine.analyze_table(
+                            table_name, columns=self.ANALYZE_COLUMN_REGISTRY[table_name]
+                        )
+                    else:
+                        tc.execution_telemetry = self.engine.analyze_table(table_name)
 
         self.post_results()
 

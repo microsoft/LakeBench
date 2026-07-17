@@ -4,7 +4,7 @@ import os
 from abc import ABC
 from decimal import Decimal
 from importlib.metadata import version
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 from urllib.parse import urlparse
 
 import fsspec
@@ -232,7 +232,7 @@ class BaseEngine(ABC):
         """
         pass
 
-    def analyze_table(self, table_name: str):
+    def analyze_table(self, table_name: str, columns: Optional[Sequence[str]] = None):
         """
         Compute statistics for the specified table.
 
@@ -240,6 +240,8 @@ class BaseEngine(ABC):
         ----------
         table_name : str
             The name of the table to analyze.
+        columns : sequence of str, optional
+            Columns to analyze selectively. If omitted, analyze all columns.
 
         Raises
         ------

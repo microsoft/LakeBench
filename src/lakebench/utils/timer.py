@@ -8,6 +8,10 @@ from ..engines.spark import Spark
 logger = logging.getLogger(__name__)
 
 
+def _format_timer_label(phase: str, test_item: str, sub_phase: str = None) -> str:
+    return " - ".join(part for part in (phase, sub_phase, test_item) if part)
+
+
 def _has_spark_context(engine):
     """Check if engine has a usable sparkContext (not available in Databricks Connect)."""
     if not isinstance(engine, Spark):
@@ -28,13 +32,14 @@ def timer(phase: str = "Elapsed time", test_item: str = "", engine: str = None, 
         sum(1 for result in timer.results if result[0] == phase and result[1] == test_item and result[2] == sub_phase)
         + 1
     )
+    timer_label = _format_timer_label(phase, test_item, sub_phase)
 
     class TimerContext:
-        def __init__(self, phase: str, test_item: str, iteration: int):
+        def __init__(self, label: str, iteration: int):
             self.execution_telemetry = {}
-            self.context_decorator = f"{phase} - {test_item} [i:{iteration}]"
+            self.context_decorator = f"{label} [i:{iteration}]"
 
-    timer_context = TimerContext(phase, test_item, iteration)
+    timer_context = TimerContext(timer_label, iteration)
 
     has_sc = _has_spark_context(engine)
     if has_sc:
@@ -55,15 +60,14 @@ def timer(phase: str = "Elapsed time", test_item: str = "", engine: str = None, 
         success = False
         error_message = str(e)
         error_type = type(e).__name__  # Capture the error type
-        logger.error("Error during %s - %s... %s: %s", phase, test_item, error_type, error_message)
+        logger.error("Error during %s... %s: %s", timer_label, error_type, error_message)
 
     finally:
         end = time.time()
         duration = int((end - start) * 1000)
         logger.info(
-            "%s - %s%s: %.2f seconds",
-            phase,
-            test_item,
+            "%s%s: %.2f seconds",
+            timer_label,
             f" [i:{iteration}]" if iteration > 1 else "",
             duration / 1000,
         )

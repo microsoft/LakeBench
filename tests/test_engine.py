@@ -80,6 +80,11 @@ class TestAnalyzeTable:
         with pytest.raises(NotImplementedError, match="does not support analyze_table"):
             engine.analyze_table("some_table")
 
+    def test_raises_not_implemented_with_selected_columns(self):
+        engine = _MinimalEngine()
+        with pytest.raises(NotImplementedError, match="does not support analyze_table"):
+            engine.analyze_table("some_table", columns=["id"])
+
 
 class _MockSpark:
     """Stub for Spark engine that captures executed DDL without requiring PySpark."""
@@ -170,3 +175,40 @@ class TestSparkCreateEmptyTableUsingDeltaInjection:
         result = engine.executed_statements[0].lower()
         assert "using parquet" in result
         assert "using delta" not in result
+
+
+class TestSparkAnalyzeTable:
+    def test_full_analysis_uses_all_columns(self):
+        engine = _make_spark_engine()
+        engine.full_catalog_schema_reference = "`catalog`.`schema`"
+        engine.spark = type("SparkSessionStub", (), {"sql": engine.executed_statements.append})()
+
+        engine.analyze_table("customer")
+
+        assert engine.executed_statements == [
+            "ANALYZE TABLE `catalog`.`schema`.customer COMPUTE STATISTICS FOR ALL COLUMNS"
+        ]
+
+    def test_selective_analysis_uses_requested_columns(self):
+        engine = _make_spark_engine()
+        engine.full_catalog_schema_reference = "`catalog`.`schema`"
+        engine.spark = type("SparkSessionStub", (), {"sql": engine.executed_statements.append})()
+
+        engine.analyze_table("customer", columns=["c_custkey", "c_nationkey"])
+
+        assert engine.executed_statements == [
+            "ANALYZE TABLE `catalog`.`schema`.customer "
+            "COMPUTE STATISTICS FOR COLUMNS `c_custkey`, `c_nationkey`"
+        ]
+
+    def test_selective_analysis_rejects_empty_columns(self):
+        engine = _make_spark_engine()
+
+        with pytest.raises(ValueError, match="At least one column"):
+            engine.analyze_table("customer", columns=[])
+
+    def test_selective_analysis_rejects_string_columns(self):
+        engine = _make_spark_engine()
+
+        with pytest.raises(TypeError, match="not a string"):
+            engine.analyze_table("customer", columns="c_custkey")
