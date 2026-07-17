@@ -58,6 +58,7 @@ class BaseBenchmark(ABC):
         ('total_cores', 'SMALLINT'),
         ('compute_size', 'STRING'),
         ('phase', 'STRING'),
+        ('sub_phase', 'STRING'),
         ('test_item', 'STRING'),
         ('start_datetime', 'TIMESTAMP'),
         ('duration_ms', 'INT'),
@@ -156,6 +157,7 @@ class BaseBenchmark(ABC):
                 **self.header_detail_dict,
                 'mode': self.mode.lower() if self.mode else None,
                 'phase': phase,
+                'sub_phase': sub_phase,
                 'test_item': test_item,
                 'start_datetime': start_datetime,
                 'duration_ms': duration_ms,
@@ -166,7 +168,7 @@ class BaseBenchmark(ABC):
                 'engine_properties': self.engine.extended_engine_metadata,
                 'execution_telemetry': execution_telemetry
             }
-            for phase, test_item, start_datetime, duration_ms, iteration, success, error_message, execution_telemetry in self.timer.results
+            for phase, test_item, sub_phase, start_datetime, duration_ms, iteration, success, error_message, execution_telemetry in self.timer.results
         ]
         self.results.extend(result_array)
 

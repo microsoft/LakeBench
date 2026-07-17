@@ -271,7 +271,7 @@ create table store_returns (
     sr_store_credit decimal(7, 2),
     sr_net_loss decimal(7, 2)
 )
-partitioned by (sr_returned_date_sk);
+cluster by (sr_returned_date_sk);
 
 create table household_demographics (
     hd_demo_sk integer not null,
@@ -338,7 +338,7 @@ create table inventory (
     inv_warehouse_sk integer not null,
     inv_quantity_on_hand integer
 )
-partitioned by (inv_date_sk);
+cluster by (inv_date_sk);
 
 create table catalog_returns (
     cr_returned_date_sk integer,
@@ -369,7 +369,7 @@ create table catalog_returns (
     cr_store_credit decimal(7, 2),
     cr_net_loss decimal(7, 2)
 )
-partitioned by (cr_returned_date_sk);
+cluster by (cr_returned_date_sk);
 
 CREATE TABLE web_returns (
     wr_returned_date_sk integer,
@@ -397,7 +397,7 @@ CREATE TABLE web_returns (
     wr_account_credit decimal(7, 2),
     wr_net_loss decimal(7, 2)
 )
-partitioned by (wr_returned_date_sk);
+cluster by (wr_returned_date_sk);
 
 create table web_sales (
     ws_sold_date_sk integer,
@@ -435,7 +435,7 @@ create table web_sales (
     ws_net_paid_inc_ship_tax decimal(7, 2),
     ws_net_profit decimal(7, 2)
 )
-partitioned by (ws_sold_date_sk);
+cluster by (ws_sold_date_sk);
 
 CREATE TABLE catalog_sales (
     cs_sold_date_sk integer,
@@ -473,7 +473,7 @@ CREATE TABLE catalog_sales (
     cs_net_paid_inc_ship_tax decimal(7, 2),
     cs_net_profit decimal(7, 2)
 )
-partitioned by (cs_sold_date_sk);
+cluster by (cs_sold_date_sk);
 
 create table store_sales (
     ss_sold_date_sk integer,
@@ -500,4 +500,4 @@ create table store_sales (
     ss_net_paid_inc_tax decimal(7, 2),
     ss_net_profit decimal(7, 2)
 )
-partitioned by (ss_sold_date_sk);
+cluster by (ss_sold_date_sk);

@@ -73,6 +73,13 @@ class TestGetJobCost:
         assert float(cost) == pytest.approx(expected, rel=1e-6)
 
 
+class TestAnalyzeTable:
+    def test_raises_not_implemented(self):
+        engine = _MinimalEngine()
+        with pytest.raises(NotImplementedError, match="does not support analyze_table"):
+            engine.analyze_table("some_table")
+
+
 class _MockSpark:
     """Stub for Spark engine that captures executed DDL without requiring PySpark."""
 

@@ -218,6 +218,22 @@ class BaseEngine(ABC):
         By default, this is a no-op and is only overridden by subclasses as needed.
         """
         pass
+
+    def analyze_table(self, table_name: str):
+        """
+        Compute statistics for the specified table.
+
+        Parameters
+        ----------
+        table_name : str
+            The name of the table to analyze.
+
+        Raises
+        ------
+        NotImplementedError
+            If the engine does not support ANALYZE operations.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support analyze_table().")
     
     def create_schema_if_not_exists(self, drop_before_create: bool = True):
         if drop_before_create:

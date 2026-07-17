@@ -149,3 +149,32 @@ class TestBackwardCompatibility:
         error_msg = str(exc_info.value)
         assert 'partitioned' in error_msg
         assert 'clustered' in error_msg
+
+
+class TestOptimizeAnalyzeFlags:
+    def test_defaults_false(self):
+        bench = _make_benchmark()
+        assert bench.optimize is False
+        assert bench.analyze is False
+
+    def test_optimize_flag_stored(self):
+        bench = _make_benchmark(optimize=True)
+        assert bench.optimize is True
+        assert bench.engine.extended_engine_metadata['optimize'] == 'True'
+
+    def test_analyze_flag_stored(self):
+        bench = _make_benchmark(analyze=True)
+        assert bench.analyze is True
+        assert bench.engine.extended_engine_metadata['analyze'] == 'True'
+
+    def test_both_flags_stored(self):
+        bench = _make_benchmark(optimize=True, analyze=True)
+        assert bench.optimize is True
+        assert bench.analyze is True
+        assert bench.engine.extended_engine_metadata['optimize'] == 'True'
+        assert bench.engine.extended_engine_metadata['analyze'] == 'True'
+
+    def test_metadata_records_false(self):
+        bench = _make_benchmark(optimize=False, analyze=False)
+        assert bench.engine.extended_engine_metadata['optimize'] == 'False'
+        assert bench.engine.extended_engine_metadata['analyze'] == 'False'

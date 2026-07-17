@@ -4,11 +4,11 @@ from contextlib import contextmanager
 from ..engines.spark import Spark
 
 @contextmanager
-def timer(phase: str = "Elapsed time", test_item: str = '', engine: str = None):
+def timer(phase: str = "Elapsed time", test_item: str = '', engine: str = None, sub_phase: str = None):
     if not hasattr(timer, "results"):
         timer.results = []
 
-    iteration = sum(1 for result in timer.results if result[0] == phase and result[1] == test_item) + 1
+    iteration = sum(1 for result in timer.results if result[0] == phase and result[1] == test_item and result[2] == sub_phase) + 1
     
     class TimerContext:
         def __init__(self, phase: str, test_item: str, iteration: int):
@@ -61,6 +61,7 @@ def timer(phase: str = "Elapsed time", test_item: str = '', engine: str = None):
             (
                 phase, 
                 test_item, 
+                sub_phase,
                 start_datetime, 
                 duration, 
                 iteration, 

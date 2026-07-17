@@ -63,7 +63,9 @@ class _LoadAndQuery(BaseBenchmark):
             run_id: Optional[str] = None,
             ddl_variant: Optional[str] = None,
             ddl_override: Optional[str] = None,
-            ddl_override_dialect: Optional[str] = 'spark'
+            ddl_override_dialect: Optional[str] = 'spark',
+            optimize: bool = False,
+            analyze: bool = False
             ):
         if ddl_variant is not None and ddl_override is not None:
             raise ValueError("'ddl_variant' and 'ddl_override' are mutually exclusive. Provide one or neither.")
@@ -88,6 +90,11 @@ class _LoadAndQuery(BaseBenchmark):
         else:
             ddl_variant_label = 'default'
         self.engine.extended_engine_metadata['ddl_variant'] = ddl_variant_label
+
+        self.optimize = optimize
+        self.analyze = analyze
+        self.engine.extended_engine_metadata['optimize'] = str(optimize)
+        self.engine.extended_engine_metadata['analyze'] = str(analyze)
 
         if query_list is not None:
             expanded_query_list = []
@@ -250,7 +257,7 @@ class _LoadAndQuery(BaseBenchmark):
         if self.engine.SUPPORTS_SCHEMA_PREP:
             self._prepare_schema()
         for table_name in self.TABLE_REGISTRY:
-            with self.timer(phase="Load", test_item=table_name, engine=self.engine) as tc:
+            with self.timer(phase="Load", sub_phase="load", test_item=table_name, engine=self.engine) as tc:
                 if self.benchmark_impl is not None:
                     # If a specific benchmark implementation is defined, use it to load the table
                     tc.execution_telemetry = self.benchmark_impl.load_parquet_to_delta(
@@ -267,6 +274,17 @@ class _LoadAndQuery(BaseBenchmark):
                         table_is_precreated=True,
                         context_decorator=tc.context_decorator
                     )
+
+        if self.optimize:
+            for table_name in self.TABLE_REGISTRY:
+                with self.timer(phase="Load", sub_phase="optimize", test_item=table_name, engine=self.engine):
+                    self.engine.optimize_table(table_name)
+
+        if self.analyze:
+            for table_name in self.TABLE_REGISTRY:
+                with self.timer(phase="Load", sub_phase="analyze", test_item=table_name, engine=self.engine):
+                    self.engine.analyze_table(table_name)
+
         self.post_results()
 
     def _run_query_test(self):

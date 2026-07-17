@@ -59,9 +59,21 @@ class Spark(BaseEngine):
             The cost per vCore hour for the Spark cluster. If None, cost calculations are auto calculated
             where possible.
         compute_stats_all_cols : bool, default False
+            .. deprecated::
+                Use the ``analyze`` parameter on the benchmark class instead.
+                This parameter will be removed in a future release.
             Whether to compute statistics for all columns after each table is loaded.
         """
         super().__init__(schema_or_working_directory_uri=schema_uri)
+
+        if compute_stats_all_cols:
+            import warnings
+            warnings.warn(
+                "The 'compute_stats_all_cols' parameter on Spark is deprecated. "
+                "Use the 'analyze' parameter on the benchmark class (e.g., TPCH(..., analyze=True)) instead.",
+                DeprecationWarning,
+                stacklevel=2
+            )
         from pyspark.sql import SparkSession
         import pyspark.sql.functions as sf
         self.sf = sf
@@ -294,12 +306,12 @@ class Spark(BaseEngine):
     def load_parquet_to_delta(self, parquet_folder_uri: str, table_name: str, table_is_precreated: bool = False, context_decorator: Optional[str] = None):
         df = self.spark.read.parquet(parquet_folder_uri)
         if table_is_precreated:
-            df.write.insertInto(table_name, overwrite=True)
+            df.write.insertInto(table_name, overwrite=False)
         else:
             df.write.format('delta').mode("append").saveAsTable(table_name)
 
         if self.run_analyze_after_load:
-            self.spark.sql(f"ANALYZE TABLE {table_name} COMPUTE STATISTICS FOR ALL COLUMNS;")    
+            self.analyze_table(table_name)
 
     def execute_sql_query(self, query: str, context_decorator: Optional[str] = None):
         execute_sql = self.spark.sql(query).collect()
@@ -320,6 +332,9 @@ class Spark(BaseEngine):
 
     def optimize_table(self, table_name: str):
         self.spark.sql(f"OPTIMIZE {self.full_catalog_schema_reference}.{table_name}")
+
+    def analyze_table(self, table_name: str):
+        self.spark.sql(f"ANALYZE TABLE {self.full_catalog_schema_reference}.{table_name} COMPUTE STATISTICS FOR ALL COLUMNS")
 
     def vacuum_table(self, table_name: str, retain_hours: int = 168, retention_check: bool = True):
         self.spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", retention_check)

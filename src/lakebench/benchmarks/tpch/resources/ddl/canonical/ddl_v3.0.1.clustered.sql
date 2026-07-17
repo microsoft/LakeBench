@@ -8,7 +8,7 @@ create table customer (
     c_mktsegment char(10) not null, 
     c_comment varchar(117) not null
 )
-partitioned by (c_mktsegment);
+cluster by (c_mktsegment);
 
 create table nation
   ( n_nationkey     integer not null, 
@@ -35,7 +35,7 @@ create table lineitem
     l_shipmode      char(10) not null,
 	l_comment       varchar(44) not null
 )
-partitioned by (l_shipdate);
+cluster by (l_shipdate);
 
 create table orders
   ( o_orderkey         bigint not null,
@@ -48,7 +48,7 @@ create table orders
     o_shippriority     integer not null,
     o_comment          varchar(79) not null
 )
-partitioned by (o_orderdate);
+cluster by (o_orderdate);
 
 create table part
   ( p_partkey       bigint not null,      
@@ -61,7 +61,7 @@ create table part
     p_retailprice   decimal(15,2) not null,
     p_comment       varchar(23) not null
 )
-partitioned by (p_brand);
+cluster by (p_brand);
 
 create table partsupp
   ( ps_partkey      bigint not null, 
