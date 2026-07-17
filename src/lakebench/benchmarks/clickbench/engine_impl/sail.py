@@ -1,13 +1,17 @@
-from ....engines.sail import Sail
 import posixpath
 from typing import Optional
 
+from ....engines.sail import Sail
+
+
 class SailClickBench:
     def __init__(self, engine: Sail):
-        
+
         self.engine = engine
 
-    def load_parquet_to_delta(self, parquet_folder_uri: str, table_name: str, table_is_precreated: bool = False, context_decorator: str = None):
+    def load_parquet_to_delta(
+        self, parquet_folder_uri: str, table_name: str, table_is_precreated: bool = False, context_decorator: str = None
+    ):
         """
         Loads the ClickBench parquet data into Delta format using Spark.
 
@@ -17,6 +21,7 @@ class SailClickBench:
             Path to the source parquet files.
         """
         from pyspark.sql import functions as sf
+
         # Load parquet files
         df = self.engine.spark.read.parquet(parquet_folder_uri)
 
@@ -29,7 +34,9 @@ class SailClickBench:
         df = df.withColumn("ClientEventTime", sf.col("ClientEventTime").cast("timestamp"))
         df = df.withColumn("LocalEventTime", sf.col("LocalEventTime").cast("timestamp"))
 
-        df.write.format("delta").mode("append").save(posixpath.join(self.engine.schema_or_working_directory_uri, table_name))
+        df.write.format("delta").mode("append").save(
+            posixpath.join(self.engine.schema_or_working_directory_uri, table_name)
+        )
 
     def execute_sql_query(self, query: str, context_decorator: Optional[str] = None):
         return self.engine.execute_sql_query(query)

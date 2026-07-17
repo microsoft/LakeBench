@@ -19,9 +19,11 @@ After a pytest session, per-engine markdown reports are written to
 reports/coverage/<engine>.md  whenever report_and_assert is called at least
 once.  Run any integration test to refresh the reports.
 """
+
 import datetime
-import warnings
 import pathlib
+import warnings
+
 import pytest
 
 pytest.importorskip("duckdb", reason="requires lakebench[tpcds_datagen] extra")
@@ -37,8 +39,8 @@ _RESULTS: list[dict] = []
 # Shared reporting helper
 # ---------------------------------------------------------------------------
 
-def report_and_assert(results, benchmark_name: str, engine_label: str,
-                      run_exception=None, min_pass_rate: float = 0.0):
+
+def report_and_assert(results, benchmark_name: str, engine_label: str, run_exception=None, min_pass_rate: float = 0.0):
     """Print a run summary, emit warnings on partial failures, and assert
     pass rate meets *min_pass_rate*.
 
@@ -48,7 +50,7 @@ def report_and_assert(results, benchmark_name: str, engine_label: str,
     Works for both load-and-query benchmarks (TPC-H, TPC-DS, ClickBench) and
     task-based benchmarks (ELTBench).
     """
-    load_results  = [r for r in results if r["phase"] == "Load"]
+    load_results = [r for r in results if r["phase"] == "Load"]
     query_results = [r for r in results if r["phase"] == "Query"]
 
     def _assert_rate(passed, total, unit):
@@ -62,9 +64,7 @@ def report_and_assert(results, benchmark_name: str, engine_label: str,
                 f"is below required {min_pass_rate:.0%}."
             )
         else:
-            assert len(passed) > 0, (
-                f"{benchmark_name} [{engine_label}]: ALL {total} {unit} failed."
-            )
+            assert len(passed) > 0, f"{benchmark_name} [{engine_label}]: ALL {total} {unit} failed."
 
     # ELTBench: no Load/Query phases — treat every result as a "task"
     if not load_results and not query_results:
@@ -72,21 +72,21 @@ def report_and_assert(results, benchmark_name: str, engine_label: str,
         passed = [r for r in task_results if r["success"]]
         failed = [r for r in task_results if not r["success"]]
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"{benchmark_name} [{engine_label}]")
         print(f"  Tasks : {len(passed)}/{len(task_results)} passed, {len(failed)} failed")
         for r in failed:
             print(f"    x {r['test_item']} ({r['phase']}): {r['error_message'][:120]}")
         if run_exception:
-            print(f"  [WARN] raised before completion: "
-                  f"{type(run_exception).__name__}: {str(run_exception)[:200]}")
-        print(f"{'='*60}")
+            print(f"  [WARN] raised before completion: {type(run_exception).__name__}: {str(run_exception)[:200]}")
+        print(f"{'=' * 60}")
 
         if len(task_results) == 0 and run_exception is not None:
             warnings.warn(
                 f"{benchmark_name} [{engine_label}]: engine crashed before any tasks ran: "
                 f"{type(run_exception).__name__}: {str(run_exception)[:200]}",
-                UserWarning, stacklevel=2,
+                UserWarning,
+                stacklevel=2,
             )
             return
 
@@ -94,35 +94,41 @@ def report_and_assert(results, benchmark_name: str, engine_label: str,
             warnings.warn(
                 f"{benchmark_name} [{engine_label}]: {len(failed)} of {len(task_results)} "
                 f"tasks failed: {[r['test_item'] for r in failed]}",
-                UserWarning, stacklevel=2,
+                UserWarning,
+                stacklevel=2,
             )
         _assert_rate(passed, len(task_results), "tasks")
-        _RESULTS.append({
-            "benchmark": benchmark_name, "engine": engine_label,
-            "unit": "tasks", "passed": len(passed), "total": len(task_results),
-            "failed": [{"name": r["test_item"], "phase": r["phase"],
-                        "error": r["error_message"]} for r in failed],
-            "run_exception": str(run_exception) if run_exception else None,
-            "timestamp": datetime.datetime.utcnow().isoformat(),
-        })
+        _RESULTS.append(
+            {
+                "benchmark": benchmark_name,
+                "engine": engine_label,
+                "unit": "tasks",
+                "passed": len(passed),
+                "total": len(task_results),
+                "failed": [{"name": r["test_item"], "phase": r["phase"], "error": r["error_message"]} for r in failed],
+                "run_exception": str(run_exception) if run_exception else None,
+                "timestamp": datetime.datetime.utcnow().isoformat(),
+            }
+        )
         return
 
     # Load-and-query benchmarks (TPC-H, TPC-DS, ClickBench)
     passed = [r for r in query_results if r["success"]]
     failed = [r for r in query_results if not r["success"]]
-    lf     = [r for r in load_results  if not r["success"]]
+    lf = [r for r in load_results if not r["success"]]
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"{benchmark_name} [{engine_label}]")
-    print(f"  Load  : {len(load_results) - len(lf)}/{len(load_results)} tables loaded OK"
-          + (f"  [WARN] failed: {[r['test_item'] for r in lf]}" if lf else ""))
+    print(
+        f"  Load  : {len(load_results) - len(lf)}/{len(load_results)} tables loaded OK"
+        + (f"  [WARN] failed: {[r['test_item'] for r in lf]}" if lf else "")
+    )
     print(f"  Query : {len(passed)}/{len(query_results)} passed, {len(failed)} failed")
     for r in failed:
         print(f"    x {r['test_item']}: {r['error_message'][:120]}")
     if run_exception:
-        print(f"  [WARN] raised before completion: "
-              f"{type(run_exception).__name__}: {str(run_exception)[:200]}")
-    print(f"{'='*60}")
+        print(f"  [WARN] raised before completion: {type(run_exception).__name__}: {str(run_exception)[:200]}")
+    print(f"{'=' * 60}")
 
     if lf and len(lf) == len(load_results) and len(load_results) > 0:
         pytest.fail(
@@ -134,7 +140,8 @@ def report_and_assert(results, benchmark_name: str, engine_label: str,
         warnings.warn(
             f"{benchmark_name} [{engine_label}]: engine crashed before any queries ran: "
             f"{type(run_exception).__name__}: {str(run_exception)[:200]}",
-            UserWarning, stacklevel=2,
+            UserWarning,
+            stacklevel=2,
         )
         return
 
@@ -142,23 +149,29 @@ def report_and_assert(results, benchmark_name: str, engine_label: str,
         warnings.warn(
             f"{benchmark_name} [{engine_label}]: {len(failed)} of {len(query_results)} "
             f"queries failed: {[r['test_item'] for r in failed]}",
-            UserWarning, stacklevel=2,
+            UserWarning,
+            stacklevel=2,
         )
     _assert_rate(passed, len(query_results), "queries")
-    _RESULTS.append({
-        "benchmark": benchmark_name, "engine": engine_label,
-        "unit": "queries", "passed": len(passed), "total": len(query_results),
-        "failed": [{"name": r["test_item"], "phase": "Query",
-                    "error": r["error_message"]} for r in failed],
-        "load_failed": [{"name": r["test_item"], "error": r["error_message"]} for r in lf],
-        "run_exception": str(run_exception) if run_exception else None,
-        "timestamp": datetime.datetime.utcnow().isoformat(),
-    })
+    _RESULTS.append(
+        {
+            "benchmark": benchmark_name,
+            "engine": engine_label,
+            "unit": "queries",
+            "passed": len(passed),
+            "total": len(query_results),
+            "failed": [{"name": r["test_item"], "phase": "Query", "error": r["error_message"]} for r in failed],
+            "load_failed": [{"name": r["test_item"], "error": r["error_message"]} for r in lf],
+            "run_exception": str(run_exception) if run_exception else None,
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
 # Shared benchmark runner
 # ---------------------------------------------------------------------------
+
 
 def run_benchmark(engine, BenchmarkCls, input_dir: str, run_mode: str, **kwargs):
     """Instantiate *BenchmarkCls*, run it, and return (results, exception).
@@ -183,6 +196,7 @@ def run_benchmark(engine, BenchmarkCls, input_dir: str, run_mode: str, **kwargs)
 # ---------------------------------------------------------------------------
 # Data fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="session")
 def tpch_parquet_dir(tmp_path_factory):
@@ -211,8 +225,7 @@ def clickbench_parquet_dir():
     """Return the directory containing the committed ClickBench 100-row sample."""
     data_dir = pathlib.Path(__file__).parent / "data"
     assert (data_dir / "clickbench_sample.parquet").exists(), (
-        "ClickBench sample parquet not found. "
-        "Run: python tests/integration/data/generate_clickbench_sample.py"
+        "ClickBench sample parquet not found. Run: python tests/integration/data/generate_clickbench_sample.py"
     )
     return str(data_dir)
 
@@ -231,27 +244,26 @@ def _engine_slug(label: str) -> str:
 
 
 def _render_engine_report(engine_label: str, records: list) -> str:
-    ordered = sorted(records, key=lambda r: (
-        _BENCHMARK_ORDER.index(r["benchmark"])
-        if r["benchmark"] in _BENCHMARK_ORDER else 99
-    ))
+    ordered = sorted(
+        records, key=lambda r: _BENCHMARK_ORDER.index(r["benchmark"]) if r["benchmark"] in _BENCHMARK_ORDER else 99
+    )
     ts = max(r["timestamp"] for r in records)
     lines = [
         f"# {engine_label} Benchmark Report",
         "",
-        f"_Auto-generated by the LakeBench integration test suite._  ",
+        "_Auto-generated by the LakeBench integration test suite._  ",
         f"_Last updated: {ts[:19].replace('T', ' ')} UTC_",
         "",
         "---",
         "",
     ]
     for r in ordered:
-        bm      = r["benchmark"]
-        passed  = r["passed"]
-        total   = r["total"]
-        unit    = r["unit"]
-        failed  = r.get("failed", [])
-        lf      = r.get("load_failed", [])
+        bm = r["benchmark"]
+        passed = r["passed"]
+        total = r["total"]
+        unit = r["unit"]
+        failed = r.get("failed", [])
+        lf = r.get("load_failed", [])
         exc_str = r.get("run_exception")
 
         rate = passed / total if total > 0 else 0.0
@@ -272,7 +284,7 @@ def _render_engine_report(engine_label: str, records: list) -> str:
                 "|-------|-------|",
             ]
             for item in lf:
-                err = item['error'][:200].replace('\n', ' ').replace('|', '\\|')
+                err = item["error"][:200].replace("\n", " ").replace("|", "\\|")
                 lines.append(f"| `{item['name']}` | {err} |")
             lines.append("")
 
@@ -285,7 +297,7 @@ def _render_engine_report(engine_label: str, records: list) -> str:
                 "|---|---|",
             ]
             for item in failed:
-                err = item['error'][:300].replace('\n', ' ').replace('|', '\\|')
+                err = item["error"][:300].replace("\n", " ").replace("|", "\\|")
                 lines.append(f"| `{item['name']}` | {err} |")
             lines.append("")
 
@@ -307,6 +319,7 @@ def pytest_sessionfinish(session, exitstatus):
         return
 
     from collections import defaultdict
+
     by_engine: dict[str, list] = defaultdict(list)
     for r in _RESULTS:
         by_engine[r["engine"]].append(r)
@@ -314,10 +327,10 @@ def pytest_sessionfinish(session, exitstatus):
     _DOCS_DIR.mkdir(parents=True, exist_ok=True)
     for engine_label, records in by_engine.items():
         slug = _engine_slug(engine_label)
-        out  = _DOCS_DIR / f"{slug}.md"
+        out = _DOCS_DIR / f"{slug}.md"
         # Merge with existing records for other benchmarks not run this session
         existing = _load_existing_records(out)
-        merged   = _merge_records(existing, records)
+        merged = _merge_records(existing, records)
         out.write_text(_render_engine_report(engine_label, merged), encoding="utf-8")
         print(f"\n[report] {out}")
 

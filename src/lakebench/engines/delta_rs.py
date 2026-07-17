@@ -1,5 +1,6 @@
 from .base import BaseEngine
 
+
 class DeltaRs(BaseEngine):
     """
     Delta-Rs Engine
@@ -9,8 +10,8 @@ class DeltaRs(BaseEngine):
         """
         Initialize the Delta-rs Engine Configs
         """
-        from deltalake.writer import write_deltalake
         from deltalake import DeltaTable
+        from deltalake.writer import write_deltalake
+
         self.write_deltalake = write_deltalake
         self.DeltaTable = DeltaTable
-        
