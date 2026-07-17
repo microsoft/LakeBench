@@ -1,4 +1,6 @@
 from ._tpc_rs import _TPCRsDataGenerator
+
+
 class TPCHDataGenerator(_TPCRsDataGenerator):
     """
     This class is a multithreading wrapper of the rust-based TPC-H data generator, `tpchgen-rs`. It generates TPC-H data in Parquet format
@@ -22,26 +24,18 @@ class TPCHDataGenerator(_TPCRsDataGenerator):
     run()
         Generates TPC-H data in Parquet format based on the input scale factor and writes it to the target folder.
     """
-    GEN_UTIL = 'dbgen'
-    GEN_TYPE = 'tpch'
-    GEN_SF1000_FILE_COUNT_MAP = {
-        'lineitem': 150,
-        'orders': 40,
-        'partsupp': 26,
-        'part': 4,
-        'customer': 8
-    }
-    GEN_TABLE_REGISTRY = [
-        'customer', 'lineitem', 'nation', 'orders', 'part',
-        'partsupp', 'region', 'supplier'
-    ]
+
+    GEN_UTIL = "dbgen"
+    GEN_TYPE = "tpch"
+    GEN_SF1000_FILE_COUNT_MAP = {"lineitem": 150, "orders": 40, "partsupp": 26, "part": 4, "customer": 8}
+    GEN_TABLE_REGISTRY = ["customer", "lineitem", "nation", "orders", "part", "partsupp", "region", "supplier"]
     SF1000_SIZE_GB_DICT = {
-        'lineitem':  152,
-        'orders': 38,
-        'partsupp': 26.7,
-        'part': 4,
-        'customer': 7.6,
-        'supplier': 0.48,
-        'region': 0.00,
-        'nation': 0.00
+        "lineitem": 152,
+        "orders": 38,
+        "partsupp": 26.7,
+        "part": 4,
+        "customer": 7.6,
+        "supplier": 0.48,
+        "region": 0.00,
+        "nation": 0.00,
     }

@@ -1,5 +1,6 @@
 import pytest
-from lakebench.utils.query_utils import transpile_and_qualify_query, get_table_name_from_ddl
+
+from lakebench.utils.query_utils import get_table_name_from_ddl, transpile_and_qualify_query
 
 
 class TestTranspileAndQualifyQuery:
