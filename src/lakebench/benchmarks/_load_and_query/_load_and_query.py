@@ -214,9 +214,7 @@ class _LoadAndQuery(BaseBenchmark):
             raise ValueError("'analyze' must be one of: 'none', 'full', or 'selective'.")
         if analyze_mode == "selective":
             missing_tables = {
-                table_name
-                for table_name in self.TABLE_REGISTRY
-                if not self.ANALYZE_COLUMN_REGISTRY.get(table_name)
+                table_name for table_name in self.TABLE_REGISTRY if not self.ANALYZE_COLUMN_REGISTRY.get(table_name)
             }
             if missing_tables:
                 raise ValueError(
@@ -412,9 +410,7 @@ class _LoadAndQuery(BaseBenchmark):
 
         if self.analyze != "none":
             for table_name in self.TABLE_REGISTRY:
-                with self.timer(
-                    phase="Load", sub_phase="analyze", test_item=table_name, engine=self.engine
-                ) as tc:
+                with self.timer(phase="Load", sub_phase="analyze", test_item=table_name, engine=self.engine) as tc:
                     if self.analyze == "selective":
                         tc.execution_telemetry = self.engine.analyze_table(
                             table_name, columns=self.ANALYZE_COLUMN_REGISTRY[table_name]

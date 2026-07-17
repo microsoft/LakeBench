@@ -36,9 +36,5 @@ def test_write_stats_configs_are_set_and_logged(enabled, expected):
 
     engine._configure_write_stats_collection()
 
-    assert engine.spark.conf.values == {
-        config_name: expected for config_name in FabricSpark._WRITE_STATS_CONFIGS
-    }
-    assert engine.spark_configs == {
-        config_name: expected for config_name in FabricSpark._WRITE_STATS_CONFIGS
-    }
+    assert engine.spark.conf.values == {config_name: expected for config_name in FabricSpark._WRITE_STATS_CONFIGS}
+    assert engine.spark_configs == {config_name: expected for config_name in FabricSpark._WRITE_STATS_CONFIGS}

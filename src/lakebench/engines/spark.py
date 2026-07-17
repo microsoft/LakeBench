@@ -402,8 +402,7 @@ class Spark(BaseEngine):
             else "COLUMNS " + ", ".join(f"`{column.replace('`', '``')}`" for column in columns)
         )
         self.spark.sql(
-            f"ANALYZE TABLE {self.full_catalog_schema_reference}.{table_name} "
-            f"COMPUTE STATISTICS FOR {column_clause}"
+            f"ANALYZE TABLE {self.full_catalog_schema_reference}.{table_name} COMPUTE STATISTICS FOR {column_clause}"
         )
 
     def vacuum_table(self, table_name: str, retain_hours: int = 168, retention_check: bool = True):

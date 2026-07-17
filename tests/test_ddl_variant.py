@@ -218,8 +218,7 @@ class TestOptimizeAnalyzeFlags:
         bench._run_load_test()
 
         assert bench.engine.analyze_table.call_args_list == [
-            ((table_name,), {"columns": columns})
-            for table_name, columns in bench.ANALYZE_COLUMN_REGISTRY.items()
+            ((table_name,), {"columns": columns}) for table_name, columns in bench.ANALYZE_COLUMN_REGISTRY.items()
         ]
 
     def test_full_mode_preserves_legacy_engine_signature(self):

@@ -197,8 +197,7 @@ class TestSparkAnalyzeTable:
         engine.analyze_table("customer", columns=["c_custkey", "c_nationkey"])
 
         assert engine.executed_statements == [
-            "ANALYZE TABLE `catalog`.`schema`.customer "
-            "COMPUTE STATISTICS FOR COLUMNS `c_custkey`, `c_nationkey`"
+            "ANALYZE TABLE `catalog`.`schema`.customer COMPUTE STATISTICS FOR COLUMNS `c_custkey`, `c_nationkey`"
         ]
 
     def test_selective_analysis_rejects_empty_columns(self):

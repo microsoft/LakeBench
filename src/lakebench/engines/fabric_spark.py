@@ -123,8 +123,7 @@ class FabricSpark(Spark):
     ) -> bool:
         if compute_stats_all_cols is not None:
             warnings.warn(
-                "'compute_stats_all_cols' is deprecated for FabricSpark. "
-                "Use 'collect_stats_on_write' instead.",
+                "'compute_stats_all_cols' is deprecated for FabricSpark. Use 'collect_stats_on_write' instead.",
                 DeprecationWarning,
                 stacklevel=3,
             )
