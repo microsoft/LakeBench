@@ -1,4 +1,5 @@
 import re
+import warnings
 from decimal import Decimal
 from typing import Optional
 from urllib.parse import parse_qs, urlparse
@@ -11,13 +12,20 @@ class FabricSpark(Spark):
     Fabric Spark Engine
     """
 
+    _WRITE_STATS_CONFIGS = (
+        "spark.microsoft.delta.stats.collect.extended",
+        "spark.microsoft.delta.stats.injection.enabled",
+        "spark.microsoft.delta.stats.collect.extended.property.setAtTableCreation",
+    )
+
     def __init__(
         self,
         lakehouse_name: str,
         lakehouse_schema_name: str,
         spark_measure_telemetry: bool = False,
         cost_per_vcore_hour: Optional[float] = None,
-        compute_stats_all_cols: bool = False,
+        collect_stats_on_write: bool = True,
+        compute_stats_all_cols: Optional[bool] = None,
     ):
         """
         Parameters
@@ -31,17 +39,28 @@ class FabricSpark(Spark):
         cost_per_vcore_hour : float, optional
             The cost per vCore hour for the Spark cluster. If None, cost calculations are auto calculated
             where possible.
-        compute_stats_all_cols : bool, default False
-            Whether to stats should be computed automatically as part of write operations.
+        collect_stats_on_write : bool, default True
+            Whether Fabric Delta extended statistics should be collected during write operations.
+        compute_stats_all_cols : bool, optional
+            Deprecated alias for ``collect_stats_on_write``. When provided, it takes precedence.
         """
+        collect_stats_on_write = self._resolve_collect_stats_on_write(
+            collect_stats_on_write=collect_stats_on_write,
+            compute_stats_all_cols=compute_stats_all_cols,
+        )
 
         super().__init__(
             catalog_name=lakehouse_name,
             schema_name=lakehouse_schema_name,
             spark_measure_telemetry=spark_measure_telemetry,
             cost_per_vcore_hour=cost_per_vcore_hour,
-            compute_stats_all_cols=compute_stats_all_cols,
+            compute_stats_all_cols=False,
         )
+
+        self.collect_stats_on_write = collect_stats_on_write
+        self.compute_stats_all_cols = collect_stats_on_write
+        self.run_analyze_after_load = False
+        self._configure_write_stats_collection()
 
         self.version: str = (
             f"{self.spark.sparkContext.version} (vhd_name=={self.spark.conf.get('spark.synapse.vhd.name')})"
@@ -95,11 +114,24 @@ class FabricSpark(Spark):
         }
 
         self.extended_engine_metadata.update(spark_configs_to_log)
+        self.extended_engine_metadata["collect_stats_on_write"] = str(collect_stats_on_write)
 
-        self.compute_stats_all_cols = compute_stats_all_cols
-        self.run_analyze_after_load = False  # Fabric Spark supports auto stats collection
-        if self.compute_stats_all_cols:
-            # Enable auto stats collection
-            self.spark.conf.set("spark.microsoft.delta.stats.collect.extended", "true")
-            self.spark.conf.set("spark.microsoft.delta.stats.injection.enabled", "true")
-            self.spark.conf.set("spark.microsoft.delta.stats.collect.extended.property.setAtTableCreation", "true")
+    @staticmethod
+    def _resolve_collect_stats_on_write(
+        collect_stats_on_write: bool,
+        compute_stats_all_cols: Optional[bool],
+    ) -> bool:
+        if compute_stats_all_cols is not None:
+            warnings.warn(
+                "'compute_stats_all_cols' is deprecated for FabricSpark. Use 'collect_stats_on_write' instead.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            return compute_stats_all_cols
+        return collect_stats_on_write
+
+    def _configure_write_stats_collection(self) -> None:
+        config_value = str(self.collect_stats_on_write).lower()
+        for config_name in self._WRITE_STATS_CONFIGS:
+            self.spark.conf.set(config_name, config_value)
+            self.spark_configs[config_name] = config_value

@@ -227,6 +227,38 @@ If you want to use you own TPC-DS, TPC-H, or ClickBench parquet datasets, that i
     df.write.mode('overwrite').parquet(f"..../store/")
     ```
 
+### Load-Time Statistics
+
+TPC-H and TPC-DS benchmarks can include statistics generation in the measured load phase:
+
+```python
+benchmark = TPCH(
+    engine=engine,
+    scenario_name="sf10",
+    input_parquet_folder_uri="abfss://...",
+    analyze="selective",
+)
+```
+
+The `analyze` option supports:
+
+- `"none"` (default): Do not generate statistics during load.
+- `"full"`: Ask the engine to generate statistics for every table column.
+- `"selective"`: Generate statistics only for the benchmark-maintained columns used by the workload.
+
+For backward compatibility, `analyze=True` is equivalent to `"full"` and `analyze=False` is equivalent to `"none"`.
+
+Fabric Spark separately enables Delta extended statistics during writes by default. Set
+`collect_stats_on_write=False` only when isolating explicit analyze costs:
+
+```python
+engine = FabricSpark(
+    lakehouse_name="lakehouse",
+    lakehouse_schema_name="schema",
+    collect_stats_on_write=False,
+)
+```
+
 ### Fabric Spark
 ```python
 from lakebench.engines import FabricSpark

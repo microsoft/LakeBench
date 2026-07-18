@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Literal, Optional, Union
 
 from ...engines.base import BaseEngine
 from ...engines.daft import Daft
@@ -119,6 +119,11 @@ class ClickBench(_LoadAndQuery):
         input_parquet_folder_uri: Optional[str] = None,
         result_table_uri: Optional[str] = None,
         save_results: bool = False,
+        ddl_variant: Optional[str] = None,
+        ddl_override: Optional[str] = None,
+        ddl_override_dialect: Optional[str] = "spark",
+        optimize: bool = False,
+        analyze: Union[bool, Literal["none", "full", "selective"]] = "none",
     ):
         super().__init__(
             engine=engine,
@@ -128,4 +133,9 @@ class ClickBench(_LoadAndQuery):
             input_parquet_folder_uri=input_parquet_folder_uri,
             result_table_uri=result_table_uri,
             save_results=save_results,
+            ddl_variant=ddl_variant,
+            ddl_override=ddl_override,
+            ddl_override_dialect=ddl_override_dialect,
+            optimize=optimize,
+            analyze=analyze,
         )

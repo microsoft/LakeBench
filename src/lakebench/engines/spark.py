@@ -1,6 +1,6 @@
 import os
 import posixpath
-from typing import Optional
+from typing import Optional, Sequence
 
 import tenacity
 
@@ -62,9 +62,22 @@ class Spark(BaseEngine):
             The cost per vCore hour for the Spark cluster. If None, cost calculations are auto calculated
             where possible.
         compute_stats_all_cols : bool, default False
+            .. deprecated::
+                Use the ``analyze`` parameter on the benchmark class instead.
+                This parameter will be removed in a future release.
             Whether to compute statistics for all columns after each table is loaded.
         """
         super().__init__(schema_or_working_directory_uri=schema_uri)
+
+        if compute_stats_all_cols:
+            import warnings
+
+            warnings.warn(
+                "The 'compute_stats_all_cols' parameter on Spark is deprecated. "
+                "Use the 'analyze' parameter on the benchmark class (e.g., TPCH(..., analyze=True)) instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         import pyspark.sql.functions as sf
         from pyspark.sql import SparkSession
 
@@ -202,15 +215,30 @@ class Spark(BaseEngine):
 
         Notes
         -----
-        Automatically adds 'USING delta' clause if no storage format is specified.
+        Automatically adds 'USING delta' clause after the column definitions
+        if no storage format is already specified. Handles DDLs that include
+        ``PARTITIONED BY``, ``CLUSTER BY``, or ``TBLPROPERTIES`` clauses by
+        inserting ``USING delta`` in the correct position.
         """
-        # Explicitly set the table type to Delta if not already specified
         if "using " not in ddl.lower():
-            # Find the closing parenthesis of the column definitions
-            closing_paren_index = ddl.rfind(")")
-            if closing_paren_index != -1:
-                # Insert 'USING delta' after the closing parenthesis
-                ddl = ddl[: closing_paren_index + 1] + " using delta" + ddl[closing_paren_index + 1 :]
+            import sqlglot
+
+            expression = sqlglot.parse_one(ddl, dialect="spark")
+            create_node = expression.find(sqlglot.exp.Create)
+            if create_node is not None:
+                existing_props = create_node.args.get("properties")
+                existing_exprs = existing_props.expressions if existing_props else []
+                # Prepend so USING appears before CLUSTER BY / PARTITIONED BY
+                create_node.set(
+                    "properties",
+                    sqlglot.exp.Properties(
+                        expressions=[
+                            sqlglot.exp.FileFormatProperty(this=sqlglot.exp.Literal.string("delta")),
+                            *existing_exprs,
+                        ]
+                    ),
+                )
+                ddl = create_node.sql(dialect="spark", pretty=True)
 
         self.execute_sql_statement(ddl)
 
@@ -336,12 +364,12 @@ class Spark(BaseEngine):
     ):
         df = self.spark.read.parquet(parquet_folder_uri)
         if table_is_precreated:
-            df.write.insertInto(table_name, overwrite=True)
+            df.write.insertInto(table_name, overwrite=False)
         else:
             df.write.format("delta").mode("append").saveAsTable(table_name)
 
         if self.run_analyze_after_load:
-            self.spark.sql(f"ANALYZE TABLE {table_name} COMPUTE STATISTICS FOR ALL COLUMNS;")
+            self.analyze_table(table_name)
 
     def execute_sql_query(self, query: str, context_decorator: Optional[str] = None):
         execute_sql = self.spark.sql(query).collect()
@@ -362,6 +390,20 @@ class Spark(BaseEngine):
 
     def optimize_table(self, table_name: str):
         self.spark.sql(f"OPTIMIZE {self.full_catalog_schema_reference}.{table_name}")
+
+    def analyze_table(self, table_name: str, columns: Optional[Sequence[str]] = None):
+        if isinstance(columns, (str, bytes)):
+            raise TypeError("'columns' must be a sequence of column names, not a string.")
+        if columns is not None and not columns:
+            raise ValueError("At least one column is required for selective analysis.")
+        column_clause = (
+            "ALL COLUMNS"
+            if columns is None
+            else "COLUMNS " + ", ".join(f"`{column.replace('`', '``')}`" for column in columns)
+        )
+        self.spark.sql(
+            f"ANALYZE TABLE {self.full_catalog_schema_reference}.{table_name} COMPUTE STATISTICS FOR {column_clause}"
+        )
 
     def vacuum_table(self, table_name: str, retain_hours: int = 168, retention_check: bool = True):
         self.spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", retention_check)

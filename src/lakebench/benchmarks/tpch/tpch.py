@@ -77,4 +77,51 @@ class TPCH(_LoadAndQuery):
         "q22",
     ]
     DDL_FILE_NAME = "ddl_v3.0.1.sql"
+    DDL_VARIANT_REGISTRY = {
+        "partitioned": "ddl_v3.0.1.partitioned.sql",
+        "clustered": "ddl_v3.0.1.clustered.sql",
+        "simple": "ddl_v3.0.1.simple.sql",
+    }
     VERSION = "3.0.1"
+    ANALYZE_COLUMN_REGISTRY = {
+        "customer": [
+            "c_comment",
+            "c_custkey",
+            "c_name",
+            "c_address",
+            "c_nationkey",
+            "c_phone",
+            "c_acctbal",
+            "c_mktsegment",
+        ],
+        "lineitem": [
+            "l_orderkey",
+            "l_partkey",
+            "l_suppkey",
+            "l_quantity",
+            "l_extendedprice",
+            "l_discount",
+            "l_returnflag",
+            "l_linestatus",
+            "l_shipdate",
+            "l_commitdate",
+            "l_receiptdate",
+            "l_shipinstruct",
+            "l_shipmode",
+        ],
+        "nation": ["n_nationkey", "n_name", "n_regionkey"],
+        "orders": [
+            "o_orderkey",
+            "o_custkey",
+            "o_orderstatus",
+            "o_totalprice",
+            "o_orderdate",
+            "o_orderpriority",
+            "o_shippriority",
+            "o_comment",
+        ],
+        "part": ["p_partkey", "p_name", "p_brand", "p_type", "p_size", "p_container"],
+        "partsupp": ["ps_partkey", "ps_suppkey", "ps_availqty", "ps_supplycost"],
+        "region": ["r_regionkey", "r_name"],
+        "supplier": ["s_comment", "s_suppkey", "s_name", "s_nationkey"],
+    }

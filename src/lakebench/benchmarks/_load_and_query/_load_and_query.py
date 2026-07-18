@@ -1,7 +1,7 @@
 import importlib.resources
 import inspect
 import posixpath
-from typing import List, Optional
+from typing import Dict, List, Literal, Optional, Union
 
 from ...engines.base import BaseEngine
 from ...engines.daft import Daft
@@ -160,6 +160,8 @@ class _LoadAndQuery(BaseBenchmark):
         "q99",
     ]
     DDL_FILE_NAME = ""
+    DDL_VARIANT_REGISTRY: Dict[str, str] = {}
+    ANALYZE_COLUMN_REGISTRY: Dict[str, List[str]] = {}
     VERSION = ""
 
     def __init__(
@@ -172,9 +174,58 @@ class _LoadAndQuery(BaseBenchmark):
         result_table_uri: Optional[str] = None,
         save_results: bool = False,
         run_id: Optional[str] = None,
+        ddl_variant: Optional[str] = None,
+        ddl_override: Optional[str] = None,
+        ddl_override_dialect: Optional[str] = "spark",
+        optimize: bool = False,
+        analyze: Union[bool, Literal["none", "full", "selective"]] = "none",
     ):
+        if ddl_variant is not None and ddl_override is not None:
+            raise ValueError("'ddl_variant' and 'ddl_override' are mutually exclusive. Provide one or neither.")
+        if ddl_variant is not None and ddl_variant not in self.DDL_VARIANT_REGISTRY:
+            available = list(self.DDL_VARIANT_REGISTRY.keys())
+            raise ValueError(
+                f"Unknown DDL variant '{ddl_variant}'. Available variants for {self.__class__.__name__}: {available}"
+            )
+
+        self._ddl_variant = ddl_variant
+        self._ddl_override = ddl_override
+        self._ddl_override_dialect = ddl_override_dialect
+
         self.scale_factor = scale_factor
         super().__init__(engine, scenario_name, input_parquet_folder_uri, result_table_uri, save_results, run_id)
+
+        if ddl_override is not None:
+            ddl_variant_label = "custom"
+        elif ddl_variant is not None:
+            ddl_variant_label = ddl_variant
+        else:
+            ddl_variant_label = "default"
+        self.engine.extended_engine_metadata["ddl_variant"] = ddl_variant_label
+
+        self.optimize = optimize
+        if isinstance(analyze, bool):
+            analyze_mode = "full" if analyze else "none"
+        elif isinstance(analyze, str):
+            analyze_mode = analyze.lower()
+        else:
+            raise ValueError("'analyze' must be one of: 'none', 'full', or 'selective'.")
+        if analyze_mode not in ("none", "full", "selective"):
+            raise ValueError("'analyze' must be one of: 'none', 'full', or 'selective'.")
+        if analyze_mode == "selective":
+            missing_tables = {
+                table_name for table_name in self.TABLE_REGISTRY if not self.ANALYZE_COLUMN_REGISTRY.get(table_name)
+            }
+            if missing_tables:
+                raise ValueError(
+                    f"Selective analysis is not configured for {self.__class__.__name__} tables: "
+                    f"{sorted(missing_tables)}"
+                )
+
+        self.analyze = analyze_mode
+        self.engine.extended_engine_metadata["optimize"] = str(optimize)
+        self.engine.extended_engine_metadata["analyze"] = analyze_mode
+
         if query_list is not None:
             expanded_query_list = []
             for query in query_list:
@@ -244,47 +295,57 @@ class _LoadAndQuery(BaseBenchmark):
         It then reads the DDL (Data Definition Language) file associated with the specific benchmark,
         parses the SQL statements, and executes them to set up the schema.
 
-        Parameters
-        ----------
-        None
-
         Notes
         -----
-        - The DDL file is expected to be located in the `resources.ddl` directory corresponding to the TPC benchmark variant.
+        - If ``ddl_override`` was provided, that raw DDL string is used directly.
+        - If ``ddl_variant`` was provided, the corresponding file from ``DDL_VARIANT_REGISTRY`` is loaded
+          using the same 3-tier engine fallback as the default DDL.
+        - Otherwise the canonical ``DDL_FILE_NAME`` is used (existing behavior).
+        - The engine's ``_create_empty_table`` method handles injecting storage format
+          clauses (e.g., ``USING delta``) automatically, so alternate DDL files do not
+          need to include them.
         """
         self.engine.create_schema_if_not_exists(drop_before_create=True)
         self.engine.create_external_location(self.input_parquet_folder_uri)
 
-        engine_class_name = self.engine.__class__.__name__.lower()
-        parent_class_name = self.engine.__class__.__bases__[0].__name__.lower()
-        benchmark_name = self.__class__.__name__.lower()
-        engine_root_lib_name = self.engine.__class__.__module__.split(".")[0]
-        from_dialect = self.engine.SQLGLOT_DIALECT
+        if self._ddl_override is not None:
+            ddl = self._ddl_override
+            from_dialect = self._ddl_override_dialect
+        else:
+            ddl_file_name = (
+                self.DDL_VARIANT_REGISTRY[self._ddl_variant] if self._ddl_variant is not None else self.DDL_FILE_NAME
+            )
 
-        try:
-            # Try to load engine-specific query first
-            with importlib.resources.path(
-                f"{engine_root_lib_name}.benchmarks.{benchmark_name}.resources.ddl.{engine_class_name}",
-                self.DDL_FILE_NAME,
-            ) as ddl_path:
-                with open(ddl_path, "r") as ddl_file:
-                    ddl = ddl_file.read()
-        except (ModuleNotFoundError, FileNotFoundError):
-            # Try parent engine class name if engine-specific fails
+            engine_class_name = self.engine.__class__.__name__.lower()
+            parent_class_name = self.engine.__class__.__bases__[0].__name__.lower()
+            benchmark_name = self.__class__.__name__.lower()
+            engine_root_lib_name = self.engine.__class__.__module__.split(".")[0]
+            from_dialect = self.engine.SQLGLOT_DIALECT
+
             try:
+                # Try to load engine-specific DDL first
                 with importlib.resources.path(
-                    f"lakebench.benchmarks.{benchmark_name}.resources.ddl.{parent_class_name}", self.DDL_FILE_NAME
+                    f"{engine_root_lib_name}.benchmarks.{benchmark_name}.resources.ddl.{engine_class_name}",
+                    ddl_file_name,
                 ) as ddl_path:
                     with open(ddl_path, "r") as ddl_file:
                         ddl = ddl_file.read()
             except (ModuleNotFoundError, FileNotFoundError):
-                # Fall back to canonical query
-                with importlib.resources.path(
-                    f"lakebench.benchmarks.{benchmark_name}.resources.ddl.canonical", self.DDL_FILE_NAME
-                ) as ddl_path:
-                    with open(ddl_path, "r") as ddl_file:
-                        ddl = ddl_file.read()
-                from_dialect = "spark"
+                # Try parent engine class name if engine-specific fails
+                try:
+                    with importlib.resources.path(
+                        f"lakebench.benchmarks.{benchmark_name}.resources.ddl.{parent_class_name}", ddl_file_name
+                    ) as ddl_path:
+                        with open(ddl_path, "r") as ddl_file:
+                            ddl = ddl_file.read()
+                except (ModuleNotFoundError, FileNotFoundError):
+                    # Fall back to canonical DDL
+                    with importlib.resources.path(
+                        f"lakebench.benchmarks.{benchmark_name}.resources.ddl.canonical", ddl_file_name
+                    ) as ddl_path:
+                        with open(ddl_path, "r") as ddl_file:
+                            ddl = ddl_file.read()
+                    from_dialect = "spark"
 
         statements = [s for s in ddl.split(";") if len(s) > 7]
         for statement in statements:
@@ -324,7 +385,7 @@ class _LoadAndQuery(BaseBenchmark):
         if self.engine.SUPPORTS_SCHEMA_PREP:
             self._prepare_schema()
         for table_name in self.TABLE_REGISTRY:
-            with self.timer(phase="Load", test_item=table_name, engine=self.engine) as tc:
+            with self.timer(phase="Load", sub_phase="load", test_item=table_name, engine=self.engine) as tc:
                 if self.benchmark_impl is not None:
                     # If a specific benchmark implementation is defined, use it to load the table
                     tc.execution_telemetry = self.benchmark_impl.load_parquet_to_delta(
@@ -341,6 +402,22 @@ class _LoadAndQuery(BaseBenchmark):
                         table_is_precreated=True,
                         context_decorator=tc.context_decorator,
                     )
+
+        if self.optimize:
+            for table_name in self.TABLE_REGISTRY:
+                with self.timer(phase="Load", sub_phase="optimize", test_item=table_name, engine=self.engine):
+                    self.engine.optimize_table(table_name)
+
+        if self.analyze != "none":
+            for table_name in self.TABLE_REGISTRY:
+                with self.timer(phase="Load", sub_phase="analyze", test_item=table_name, engine=self.engine) as tc:
+                    if self.analyze == "selective":
+                        tc.execution_telemetry = self.engine.analyze_table(
+                            table_name, columns=self.ANALYZE_COLUMN_REGISTRY[table_name]
+                        )
+                    else:
+                        tc.execution_telemetry = self.engine.analyze_table(table_name)
+
         self.post_results()
 
     def _run_query_test(self):
