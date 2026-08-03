@@ -1,10 +1,9 @@
 import os
-import pathlib
 import posixpath
 from importlib.metadata import version
 from typing import Optional
 
-from ..utils.path_utils import _REMOTE_SCHEMES, to_file_uri
+from ..utils.path_utils import to_local_path
 from .base import BaseEngine
 from .delta_rs import DeltaRs
 
@@ -50,6 +49,22 @@ class Daft(BaseEngine):
         self.version: str = f"{version('daft')} (deltalake=={version('deltalake')})"
         self.cost_per_vcore_hour = cost_per_vcore_hour or getattr(self, "_autocalc_usd_cost_per_vcore_hour", None)
 
+    def table_path(self, table_name: str) -> str:
+        """Return the Daft-compatible path/URI for *table_name*.
+
+        Daft's object store rejects ``file:///C:/...`` on Windows, so local
+        paths are handed over as bare forward-slash paths.
+        """
+        return to_local_path(posixpath.join(self.schema_or_working_directory_uri, table_name))
+
+    def write_delta(self, df, table_path: str, mode: str = "overwrite"):
+        """Write a Daft DataFrame to the Delta table at *table_path*."""
+        df.write_deltalake(table=to_local_path(table_path), mode=mode)
+
+    def read_delta(self, table_path: str):
+        """Read the Delta table at *table_path* into a Daft DataFrame."""
+        return self.daft.read_deltalake(to_local_path(table_path))
+
     def load_parquet_to_delta(
         self,
         parquet_folder_uri: str,
@@ -57,37 +72,14 @@ class Daft(BaseEngine):
         table_is_precreated: bool = False,
         context_decorator: Optional[str] = None,
     ):
-        table_df = self.daft.read_parquet(posixpath.join(parquet_folder_uri))
-        raw_path = posixpath.join(self.schema_or_working_directory_uri, table_name)
-        is_local = not any(raw_path.startswith(s) for s in _REMOTE_SCHEMES)
-        # Daft 0.7.x requires the target directory to exist for local paths
-        if is_local:
-            pathlib.Path(raw_path).mkdir(parents=True, exist_ok=True)
-        table_uri = to_file_uri(raw_path)
-        table_df.write_deltalake(
-            table=table_uri,
-            mode="overwrite",
-        )
+        table_df = self.daft.read_parquet(to_local_path(posixpath.join(parquet_folder_uri)))
+        self.write_delta(table_df, self.table_path(table_name), mode="overwrite")
 
     def register_table(self, table_name: str):
         """
         Register a Delta table DataFrame in Daft.
-
-        On local paths, Daft 0.7.x has a Windows path-handling bug in its object
-        store that corrupts drive-letter paths (``C:/...`` → ``/C:/...``) when
-        reading parquet files referenced by the Delta log.  Workaround: use
-        delta-rs to resolve the current snapshot's file URIs, then scan via
-        ``read_parquet`` which handles Windows paths correctly.
         """
-        table_path = posixpath.join(self.schema_or_working_directory_uri, table_name)
-        is_local = not any(table_path.startswith(s) for s in _REMOTE_SCHEMES)
-        if is_local:
-            from deltalake import DeltaTable
-
-            file_uris = DeltaTable(table_path).file_uris()
-            globals()[table_name] = self.daft.read_parquet(file_uris)
-        else:
-            globals()[table_name] = self.daft.read_deltalake(to_file_uri(table_path))
+        globals()[table_name] = self.read_delta(self.table_path(table_name))
 
     def execute_sql_query(self, query: str, context_decorator: Optional[str] = None):
         """

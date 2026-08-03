@@ -33,6 +33,31 @@ def to_unix_path(path_str) -> str:
 _REMOTE_SCHEMES = ("abfss://", "wasbs://", "az://", "s3://", "gs://", "file://")
 
 
+def is_remote_uri(path: str) -> bool:
+    """Return True if *path* already carries a recognised remote/URI scheme."""
+    return any(path.startswith(s) for s in _REMOTE_SCHEMES)
+
+
+def to_local_path(path: str) -> str:
+    """Normalise a local filesystem path for engines that reject ``file://`` URIs.
+
+    Remote URIs (``abfss://``, ``s3://``, ``file://``, ...) are passed through
+    unchanged.  Local paths are returned as bare paths with forward slashes.
+
+    Daft's object store mis-parses ``file:///C:/...`` on Windows (it strips the
+    scheme but keeps the leading slash, yielding ``/C:``), while bare
+    drive-letter paths round-trip correctly.
+
+    Examples::
+
+        to_local_path(r"C:\\Users\\foo\\data")       # -> "C:/Users/foo/data"
+        to_local_path("abfss://container@acct/x")   # -> unchanged
+    """
+    if is_remote_uri(path):
+        return path
+    return path.replace("\\", "/")
+
+
 def to_file_uri(path: str) -> str:
     """Convert a local filesystem path to a ``file:///`` URI.
 
@@ -45,7 +70,7 @@ def to_file_uri(path: str) -> str:
         to_file_uri(r"C:\\Users\\foo\\data")  # -> "file:///C:/Users/foo/data"
         to_file_uri("abfss://container@acct/path")  # -> unchanged
     """
-    if any(path.startswith(s) for s in _REMOTE_SCHEMES):
+    if is_remote_uri(path):
         return path
     import pathlib
 

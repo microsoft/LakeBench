@@ -47,7 +47,7 @@ class DuckDBELTBench:
         ORDER BY 
             s.s_store_id, d.d_date;
 
-        """).record_batch()
+        """).fetch_record_batch()
 
         self.write_deltalake(
             table_or_uri=posixpath.join(self.engine.schema_or_working_directory_uri, "total_sales_fact"),
@@ -93,7 +93,7 @@ class DuckDBELTBench:
             JOIN 
                 customer c ON ss.ss_customer_sk = c.c_customer_sk
 
-        """).record_batch()
+        """).fetch_record_batch()
 
         fact_table = self.DeltaTable(
             table_uri=posixpath.join(self.engine.schema_or_working_directory_uri, "total_sales_fact"),

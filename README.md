@@ -163,8 +163,10 @@ benchmark.run()
 Install from PyPi:
 
 ```bash
-pip install lakebench[duckdb,polars,daft,tpcds_datagen,tpch_datagen,sparkmeasure]
+pip install lakebench[duckdb,polars,tpcds_datagen,tpch_datagen,sparkmeasure]
 ```
+
+> _Note: the `daft` extra pins `deltalake` to 1.5.x (Daft cannot read the Arrow `Utf8View` parquet that `deltalake` 1.6.x emits from `MERGE`), so it must be installed in its own environment rather than alongside `duckdb`, `polars`, or `sail`._
 
 ## Example Usage
 To run any LakeBench benchmark, first do a one time generation of the data required for the benchmark and scale of interest. LakeBench provides datagen classes to quickly generate parquet datasets required by the benchmarks.

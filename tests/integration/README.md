@@ -69,17 +69,20 @@ Available test names per engine follow the pattern `test_{tpch,tpcds,clickbench,
 
 ---
 
-## Running all non-JVM engines together
+## Running DuckDB and Polars together
 
-DuckDB, Daft, and Polars share no conflicts and can run in one sync:
+DuckDB and Polars share no conflicts and can run in one sync:
 
 ```bash
-uv sync --group dev --extra duckdb --extra daft --extra polars \
+uv sync --group dev --extra duckdb --extra polars \
         --extra tpch_datagen --extra tpcds_datagen
 uv run pytest tests/integration/test_duckdb.py \
-              tests/integration/test_daft.py \
               tests/integration/test_polars.py -v -s
 ```
+
+Daft must be synced on its own: it pins `deltalake` to 1.5.x (Daft cannot read the
+Arrow `Utf8View` parquet that `deltalake` 1.6.x emits from `MERGE`), so `daft` is
+declared as conflicting with `duckdb`, `polars`, and `sail` in `[tool.uv]`.
 
 ---
 

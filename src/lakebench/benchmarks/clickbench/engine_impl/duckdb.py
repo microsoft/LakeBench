@@ -23,7 +23,7 @@ class DuckDBClickBench:
         arrow_df = self.engine.duckdb.sql(f"""
             SELECT * REPLACE (make_date(EventDate) AS EventDate) 
             FROM parquet_scan('{posixpath.join(parquet_folder_uri, "*.parquet")}')
-        """).record_batch()
+        """).fetch_record_batch()
 
         self.engine.deltars.write_deltalake(
             table_or_uri=posixpath.join(self.engine.schema_or_working_directory_uri, table_name),

@@ -1,9 +1,5 @@
-import pathlib
-import posixpath
-
 from ....engines.daft import Daft
 from ....engines.delta_rs import DeltaRs
-from ....utils.path_utils import _REMOTE_SCHEMES, to_file_uri
 
 
 class DaftELTBench:
@@ -16,41 +12,17 @@ class DaftELTBench:
         self.delta_rs = DeltaRs()
         self.DeltaTable = self.delta_rs.DeltaTable
 
-    # ------------------------------------------------------------------
-    # Path helpers — mirror the pattern used in Daft.load_parquet_to_delta
-    # and Daft.register_table so all local paths are handled consistently.
-    # ------------------------------------------------------------------
-
     def _table_path(self, table_name: str) -> str:
-        """Normalised filesystem path (or remote URI) for *table_name*."""
-        raw = posixpath.join(self.engine.schema_or_working_directory_uri, table_name)
-        is_local = not any(raw.startswith(s) for s in _REMOTE_SCHEMES)
-        return str(pathlib.Path(raw)) if is_local else raw
+        """Daft-compatible path (or remote URI) for *table_name*."""
+        return self.engine.table_path(table_name)
 
     def _read_delta(self, table_name: str):
-        """Read a Delta table via Daft.
-
-        On local paths Daft 0.7.x has a Windows bug where ``file:///C:/…``
-        becomes ``/C:/…``.  Workaround: use delta-rs to resolve the current
-        snapshot's parquet URIs, then scan via ``read_parquet`` (same
-        approach as ``Daft.register_table``).
-        """
-        path = self._table_path(table_name)
-        is_local = not any(path.startswith(s) for s in _REMOTE_SCHEMES)
-        if is_local:
-            from deltalake import DeltaTable
-
-            file_uris = DeltaTable(path).file_uris()
-            return self.engine.daft.read_parquet(file_uris)
-        return self.engine.daft.read_deltalake(to_file_uri(path))
+        """Read a Delta table via Daft."""
+        return self.engine.read_delta(self._table_path(table_name))
 
     def _write_delta(self, df, table_name: str, mode: str = "overwrite"):
-        """Write *df* as a Delta table (pre-creates the dir on local paths)."""
-        path = self._table_path(table_name)
-        is_local = not any(path.startswith(s) for s in _REMOTE_SCHEMES)
-        if is_local:
-            pathlib.Path(path).mkdir(parents=True, exist_ok=True)
-        df.write_deltalake(table=to_file_uri(path), mode=mode)
+        """Write *df* as a Delta table."""
+        self.engine.write_delta(df, self._table_path(table_name), mode=mode)
 
     # ------------------------------------------------------------------
 

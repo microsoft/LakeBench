@@ -34,7 +34,9 @@ dependencies = [
 # pyarrow is already a core dependency, so it is not repeated below.
 duckdb = ["duckdb==1.5.5; python_version >= '3.10'", "deltalake==1.6.2; python_version >= '3.10'"]
 polars = ["polars==1.43.2; python_version >= '3.10'", "deltalake==1.6.2; python_version >= '3.10'"]
-daft = ["daft[deltalake]==0.7.21; python_version >= '3.10'"]
+# Daft is held on deltalake 1.5.x: 1.6.x emits DataFusion `string_view` parquet
+# from MERGE, and Daft's reader rejects Arrow Utf8View.
+daft = ["daft[deltalake]==0.7.21; python_version >= '3.10'", "deltalake>=1.5.0,<1.6.0; python_version >= '3.10'"]
 tpcds_datagen = ["duckdb==1.5.5; python_version >= '3.10'"]
 tpch_datagen = ["tpchgen-cli>=3.0.0"]
 sparkmeasure = ["sparkmeasure==0.28.0; python_version >= '3.9'"]
@@ -102,6 +104,10 @@ ignore = [
 [tool.uv]
 conflicts = [
     [{ extra = "spark" }, { extra = "sail" }],
+    # daft holds deltalake at 1.5.x; the other Delta engines are on 1.6.x.
+    [{ extra = "daft" }, { extra = "duckdb" }],
+    [{ extra = "daft" }, { extra = "polars" }],
+    [{ extra = "daft" }, { extra = "sail" }],
 ]
 
 [tool.pytest.ini_options]
