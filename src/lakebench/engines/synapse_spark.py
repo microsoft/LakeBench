@@ -15,6 +15,7 @@ class SynapseSpark(Spark):
         schema_uri: Optional[str] = None,
         spark_measure_telemetry: bool = False,
         cost_per_vcore_hour: Optional[float] = None,
+        tblproperties: Optional[dict] = None,
     ):
         """
         Parameters
@@ -28,6 +29,8 @@ class SynapseSpark(Spark):
         cost_per_vcore_hour : float, optional
             The cost per vCore hour for the Spark cluster. If None, cost calculations are auto calculated
             where possible.
+        tblproperties : dict, optional
+            Delta table properties to inject into CREATE TABLE statements.
         """
 
         super().__init__(
@@ -37,6 +40,7 @@ class SynapseSpark(Spark):
             spark_measure_telemetry=spark_measure_telemetry,
             cost_per_vcore_hour=cost_per_vcore_hour,
             compute_stats_all_cols=False,
+            tblproperties=tblproperties,
         )
 
         if self.runtime != "synapse":
