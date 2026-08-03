@@ -1208,17 +1208,21 @@ dependencies = [
 daft = [
     { name = "daft", extra = ["deltalake"], marker = "(python_full_version >= '3.10' and extra == 'extra-9-lakebench-daft') or (extra == 'extra-9-lakebench-daft' and extra == 'extra-9-lakebench-duckdb') or (extra == 'extra-9-lakebench-daft' and extra == 'extra-9-lakebench-polars') or (extra == 'extra-9-lakebench-daft' and extra == 'extra-9-lakebench-sail') or (extra == 'extra-9-lakebench-sail' and extra == 'extra-9-lakebench-spark')" },
     { name = "deltalake", version = "1.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "pyarrow", version = "21.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
 ]
 duckdb = [
     { name = "deltalake", version = "1.6.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10' or (extra == 'extra-9-lakebench-sail' and extra == 'extra-9-lakebench-spark')" },
     { name = "duckdb", marker = "python_full_version >= '3.10' or (extra == 'extra-9-lakebench-sail' and extra == 'extra-9-lakebench-spark')" },
+    { name = "pyarrow", version = "21.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10' or (extra == 'extra-9-lakebench-sail' and extra == 'extra-9-lakebench-spark')" },
 ]
 polars = [
     { name = "deltalake", version = "1.6.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10' or (extra == 'extra-9-lakebench-sail' and extra == 'extra-9-lakebench-spark')" },
     { name = "polars", marker = "python_full_version >= '3.10' or (extra == 'extra-9-lakebench-sail' and extra == 'extra-9-lakebench-spark')" },
+    { name = "pyarrow", version = "21.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10' or (extra == 'extra-9-lakebench-sail' and extra == 'extra-9-lakebench-spark')" },
 ]
 sail = [
     { name = "deltalake", version = "1.6.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "pyarrow", version = "21.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "pysail", marker = "python_full_version >= '3.10'" },
     { name = "pyspark", version = "4.1.1", source = { registry = "https://pypi.org/simple" }, extra = ["connect"], marker = "(python_full_version >= '3.10' and extra == 'extra-9-lakebench-sail') or (extra == 'extra-9-lakebench-sail' and extra == 'extra-9-lakebench-spark') or (extra == 'extra-9-lakebench-daft' and extra == 'extra-9-lakebench-duckdb') or (extra == 'extra-9-lakebench-daft' and extra == 'extra-9-lakebench-polars') or (extra == 'extra-9-lakebench-daft' and extra == 'extra-9-lakebench-sail')" },
 ]
@@ -1262,7 +1266,11 @@ requires-dist = [
     { name = "fsspec", specifier = "==2025.2.0" },
     { name = "numpy", specifier = ">=1.24.4" },
     { name = "polars", marker = "python_full_version >= '3.10' and extra == 'polars'", specifier = "==1.43.2" },
-    { name = "pyarrow", specifier = ">=15.0.0" },
+    { name = "pyarrow", specifier = ">=14.0.0" },
+    { name = "pyarrow", marker = "python_full_version >= '3.10' and extra == 'daft'", specifier = ">=16.0.0" },
+    { name = "pyarrow", marker = "python_full_version >= '3.10' and extra == 'duckdb'", specifier = ">=16.0.0" },
+    { name = "pyarrow", marker = "python_full_version >= '3.10' and extra == 'polars'", specifier = ">=16.0.0" },
+    { name = "pyarrow", marker = "python_full_version >= '3.10' and extra == 'sail'", specifier = ">=16.0.0" },
     { name = "pysail", marker = "python_full_version >= '3.10' and extra == 'sail'", specifier = ">=0.7.0" },
     { name = "pyspark", marker = "python_full_version >= '3.9' and extra == 'spark'", specifier = ">=3.5.0,<4.0.0" },
     { name = "pyspark", extras = ["connect"], marker = "python_full_version >= '3.10' and extra == 'sail'", specifier = ">=4.0.0" },
