@@ -82,3 +82,7 @@ docs/_build/
 
 # Personal scratch / scratchpads (workspace-specific drivers, demo captures)
 scratch/
+
+# uv lockfile - not committed; resolution is intentionally left floating so
+# each environment picks the newest packages available in its configured index.
+uv.lock
