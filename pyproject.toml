@@ -38,7 +38,7 @@ dependencies = [
 # The core `pyarrow>=14.0.0` floor is deliberately low (see above); extras that
 # write via delta-rs need a newer pyarrow and state it explicitly here.
 duckdb = ["duckdb==1.5.5; python_version >= '3.10'", "deltalake==1.6.2; python_version >= '3.10'", "pyarrow>=16.0.0; python_version >= '3.10'"]
-polars = ["polars==1.43.1; python_version >= '3.10'", "deltalake==1.6.2; python_version >= '3.10'", "pyarrow>=16.0.0; python_version >= '3.10'"]
+polars = ["polars==1.43.2; python_version >= '3.10'", "deltalake==1.6.2; python_version >= '3.10'", "pyarrow>=16.0.0; python_version >= '3.10'"]
 # Daft is held on deltalake 1.5.x: 1.6.x emits DataFusion `string_view` parquet
 # from MERGE, and Daft's reader rejects Arrow Utf8View.
 daft = ["daft[deltalake]==0.7.21; python_version >= '3.10'", "deltalake>=1.5.0,<1.6.0; python_version >= '3.10'", "pyarrow>=16.0.0; python_version >= '3.10'"]
