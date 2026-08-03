@@ -81,7 +81,7 @@ class DuckDB(BaseEngine):
     ):
         arrow_df = self.duckdb.sql(
             f""" FROM parquet_scan('{posixpath.join(parquet_folder_uri, "*.parquet")}') """
-        ).record_batch()
+        ).fetch_record_batch()
         self.deltars.write_deltalake(
             table_or_uri=posixpath.join(self.schema_or_working_directory_uri, table_name),
             data=arrow_df,

@@ -1,9 +1,6 @@
-import pathlib
-import posixpath
 from typing import Optional
 
 from ....engines.daft import Daft
-from ....utils.path_utils import _REMOTE_SCHEMES, to_file_uri
 
 
 class DaftClickBench:
@@ -37,12 +34,9 @@ class DaftClickBench:
                     }
                 )
 
-        # Write delta — pre-create dir + to_file_uri (same pattern as Daft.load_parquet_to_delta)
-        raw_path = posixpath.join(self.engine.schema_or_working_directory_uri, table_name)
-        is_local = not any(raw_path.startswith(s) for s in _REMOTE_SCHEMES)
-        if is_local:
-            pathlib.Path(raw_path).mkdir(parents=True, exist_ok=True)
-        df.write_deltalake(table=to_file_uri(raw_path), mode="append")
+        # Write delta via the engine helper (bare local paths — Daft's object
+        # store rejects file:// URIs on Windows).
+        self.engine.write_delta(df, self.engine.table_path(table_name), mode="append")
 
     def execute_sql_query(self, query: str, context_decorator: Optional[str] = None):
         return self.engine.execute_sql_query(query)
