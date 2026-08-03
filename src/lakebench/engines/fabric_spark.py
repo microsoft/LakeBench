@@ -26,6 +26,7 @@ class FabricSpark(Spark):
         cost_per_vcore_hour: Optional[float] = None,
         collect_stats_on_write: bool = True,
         compute_stats_all_cols: Optional[bool] = None,
+        tblproperties: Optional[dict] = None,
     ):
         """
         Parameters
@@ -43,6 +44,8 @@ class FabricSpark(Spark):
             Whether Fabric Delta extended statistics should be collected during write operations.
         compute_stats_all_cols : bool, optional
             Deprecated alias for ``collect_stats_on_write``. When provided, it takes precedence.
+        tblproperties : dict, optional
+            Delta table properties to inject into CREATE TABLE statements.
         """
         collect_stats_on_write = self._resolve_collect_stats_on_write(
             collect_stats_on_write=collect_stats_on_write,
@@ -55,6 +58,7 @@ class FabricSpark(Spark):
             spark_measure_telemetry=spark_measure_telemetry,
             cost_per_vcore_hour=cost_per_vcore_hour,
             compute_stats_all_cols=False,
+            tblproperties=tblproperties,
         )
 
         self.collect_stats_on_write = collect_stats_on_write

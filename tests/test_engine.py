@@ -120,6 +120,7 @@ def _make_spark_engine():
     engine.fs = None
     engine.runtime = "local_unknown"
     engine.operating_system = engine._detect_os()
+    engine.tblproperties = {}
 
     original_execute = (
         engine.execute_sql_statement.__func__ if hasattr(engine.execute_sql_statement, "__func__") else None
@@ -175,6 +176,22 @@ class TestSparkCreateEmptyTableUsingDeltaInjection:
         result = engine.executed_statements[0].lower()
         assert "using parquet" in result
         assert "using delta" not in result
+
+    def test_tblproperties_are_injected_after_using_delta(self):
+        engine = _make_spark_engine()
+        engine.tblproperties = {
+            "delta.enableDeletionVectors": "false",
+            "delta.targetFileSize": "134217728",
+        }
+
+        engine._create_empty_table(table_name="t", ddl="CREATE TABLE t (id INT)")
+
+        result = engine.executed_statements[0]
+        assert "USING DELTA" in result
+        assert "TBLPROPERTIES" in result
+        assert "'delta.enableDeletionVectors'='false'" in result.replace(" ", "")
+        assert "'delta.targetFileSize'='134217728'" in result.replace(" ", "")
+        assert result.index("USING DELTA") < result.index("TBLPROPERTIES")
 
 
 class TestSparkAnalyzeTable:

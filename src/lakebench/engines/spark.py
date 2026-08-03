@@ -46,6 +46,7 @@ class Spark(BaseEngine):
         spark_measure_telemetry: bool = False,
         cost_per_vcore_hour: Optional[float] = None,
         compute_stats_all_cols: bool = False,
+        tblproperties: Optional[dict] = None,
     ):
         """
         Parameters
@@ -153,6 +154,7 @@ class Spark(BaseEngine):
 
         self.compute_stats_all_cols = compute_stats_all_cols
         self.run_analyze_after_load = self.compute_stats_all_cols
+        self.tblproperties = tblproperties if tblproperties is not None else {}
 
     def __get_spark_session_configs(self) -> dict:
         """
@@ -235,6 +237,32 @@ class Spark(BaseEngine):
                         expressions=[
                             sqlglot.exp.FileFormatProperty(this=sqlglot.exp.Literal.string("delta")),
                             *existing_exprs,
+                        ]
+                    ),
+                )
+                ddl = create_node.sql(dialect="spark", pretty=True)
+
+        if self.tblproperties:
+            import sqlglot
+
+            expression = sqlglot.parse_one(ddl, dialect="spark")
+            create_node = expression.find(sqlglot.exp.Create)
+            if create_node is not None:
+                existing_props = create_node.args.get("properties")
+                existing_exprs = existing_props.expressions if existing_props else []
+                # Prepend so TBLPROPERTIES appears after USING
+                create_node.set(
+                    "properties",
+                    sqlglot.exp.Properties(
+                        expressions=[
+                            *existing_exprs,
+                            *[
+                                sqlglot.exp.Property(
+                                    this=sqlglot.exp.Literal.string(k),
+                                    value=sqlglot.exp.Literal.string(v),
+                                )
+                                for k, v in self.tblproperties.items()
+                            ],
                         ]
                     ),
                 )
