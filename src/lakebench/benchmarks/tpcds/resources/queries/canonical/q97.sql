@@ -25,22 +25,22 @@ SELECT
   SUM(
     CASE
       WHEN NOT ssci.customer_sk IS NULL AND csci.customer_sk IS NULL
-      THEN 1
-      ELSE 0
+      THEN CAST(1 AS BIGINT)
+      ELSE CAST(0 AS BIGINT)
     END
   ) AS store_only,
   SUM(
     CASE
       WHEN ssci.customer_sk IS NULL AND NOT csci.customer_sk IS NULL
-      THEN 1
-      ELSE 0
+      THEN CAST(1 AS BIGINT)
+      ELSE CAST(0 AS BIGINT)
     END
   ) AS catalog_only,
   SUM(
     CASE
       WHEN NOT ssci.customer_sk IS NULL AND NOT csci.customer_sk IS NULL
-      THEN 1
-      ELSE 0
+      THEN CAST(1 AS BIGINT)
+      ELSE CAST(0 AS BIGINT)
     END
   ) AS store_and_catalog
 FROM ssci
