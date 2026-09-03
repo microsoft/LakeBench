@@ -58,20 +58,20 @@ jobs:
       matrix:
         include:
           - engine: duckdb
-            extras_flags: "--extra duckdb --extra tpcds_datagen --extra tpch_datagen"
+            extras_flags: "--extra duckdb --extra tpcds_duckdb_datagen --extra tpch_datagen"
             test_file: "tests/integration/test_duckdb.py"
           - engine: daft
-            extras_flags: "--extra daft --extra tpcds_datagen --extra tpch_datagen"
+            extras_flags: "--extra daft --extra tpcds_duckdb_datagen --extra tpch_datagen"
             test_file: "tests/integration/test_daft.py"
           - engine: polars
-            extras_flags: "--extra polars --extra tpcds_datagen --extra tpch_datagen"
+            extras_flags: "--extra polars --extra tpcds_duckdb_datagen --extra tpch_datagen"
             test_file: "tests/integration/test_polars.py"
           - engine: spark
-            extras_flags: "--extra spark --extra tpcds_datagen --extra tpch_datagen"
+            extras_flags: "--extra spark --extra tpcds_duckdb_datagen --extra tpch_datagen"
             test_file: "tests/integration/test_spark.py"
             java: "17"
           - engine: sail
-            extras_flags: "--extra sail --extra tpcds_datagen --extra tpch_datagen"
+            extras_flags: "--extra sail --extra tpcds_duckdb_datagen --extra tpch_datagen"
             test_file: "tests/integration/test_sail.py"
 
     steps:

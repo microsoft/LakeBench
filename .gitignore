@@ -86,3 +86,4 @@ scratch/
 # uv lockfile - not committed; resolution is intentionally left floating so
 # each environment picks the newest packages available in its configured index.
 uv.lock
+.cibuildwheel-build-requirements/

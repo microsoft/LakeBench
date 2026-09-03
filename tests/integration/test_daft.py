@@ -2,7 +2,7 @@
 Integration tests: all benchmarks with the Daft engine.
 
 Run with:
-    uv sync --group dev --extra daft --extra tpcds_datagen --extra tpch_datagen
+    uv sync --group dev --extra daft --extra tpcds_duckdb_datagen --extra tpch_datagen
     uv run pytest tests/integration/test_tpc_daft.py -v -s
 """
 

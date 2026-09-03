@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/datafusion-contrib/tpcgen-rs",
+  "commit": "a0e30d55358bd5a21f2981e92b5978cdcb669d95",
+  "cargo_lock_commit": "1ec501fc4f23ee527b5da5dce646fb3c5dba2385",
+  "source_branch": "cl/feat/support-specific-part-generation",
+  "pull_request": "https://github.com/datafusion-contrib/tpcgen-rs/pull/406",
+  "cli_version": "tpcgen-cli 0.1.0",
+  "platform": "linux-x86_64-manylinux_2_17",
+  "binary_name": "tpcgen-cli",
+  "binary_sha256": "354f92b919d96467b5c39e9e8e0736be35039bc0490ca898d264bb6d6d286eb4"
+}

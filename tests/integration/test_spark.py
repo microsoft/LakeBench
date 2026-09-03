@@ -5,7 +5,7 @@ Query failures are warnings; the test fails only if ALL loads or ALL queries fai
 JVM crashes (Windows) are caught and reported as warnings.
 
 Run with:
-    uv sync --group dev --extra spark --extra tpcds_datagen --extra tpch_datagen
+    uv sync --group dev --extra spark --extra tpcds_duckdb_datagen --extra tpch_datagen
     uv run pytest tests/integration/test_tpc_spark.py -v -s
 """
 

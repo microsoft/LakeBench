@@ -4,7 +4,7 @@ Integration tests: all benchmarks with the Sail engine.
 LakeBench manages the Sail session internally; no module-level fixture needed.
 
 Run with:
-    uv sync --group dev --extra sail --extra tpcds_datagen --extra tpch_datagen
+    uv sync --group dev --extra sail --extra tpcds_duckdb_datagen --extra tpch_datagen
     uv run pytest tests/integration/test_tpc_sail.py -v -s
 """
 

@@ -1,6 +1,6 @@
 [project]
 name = "lakebench"
-version = "1.2.1"
+version = "1.3.0"
 authors = [
     { name="Miles Cole" },
 ]
@@ -42,7 +42,10 @@ polars = ["polars==1.43.2; python_version >= '3.10'", "deltalake==1.6.2; python_
 # Daft is held on deltalake 1.5.x: 1.6.x emits DataFusion `string_view` parquet
 # from MERGE, and Daft's reader rejects Arrow Utf8View.
 daft = ["daft[deltalake]==0.7.21; python_version >= '3.10'", "deltalake>=1.5.0,<1.6.0; python_version >= '3.10'", "pyarrow>=16.0.0; python_version >= '3.10'"]
-tpcds_datagen = ["duckdb==1.5.5; python_version >= '3.10'"]
+# The vendored tpcgen-cli is embedded directly in platform-specific wheels.
+tpcds_datagen = []
+# Temporary fallback until the unified upstream tpcgen-cli package is released.
+tpcds_duckdb_datagen = ["duckdb==1.5.5; python_version >= '3.10'"]
 tpch_datagen = ["tpchgen-cli>=3.0.0"]
 sparkmeasure = ["sparkmeasure==0.28.0; python_version >= '3.9'"]
 spark = ["pyspark>=3.5.0,<4.0.0; python_version >= '3.9'", "delta-spark>=3.2.0,<4.0.0; python_version >= '3.9'"]
@@ -61,6 +64,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lakebench"]
+
+[tool.hatch.build.hooks.custom]
 
 [dependency-groups]
 dev = [
