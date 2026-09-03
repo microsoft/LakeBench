@@ -11,9 +11,9 @@ import os
 import shutil
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 
+import tomllib
 
 BUILD_IDENTIFIER = "cp311-manylinux_x86_64"
 
@@ -26,8 +26,7 @@ def _project_configuration(project_root: Path) -> dict:
 def _require_docker() -> None:
     if shutil.which("docker") is None:
         raise RuntimeError(
-            "Docker is required to build a Linux wheel. Install and start Docker "
-            "Desktop, then rerun this command."
+            "Docker is required to build a Linux wheel. Install and start Docker Desktop, then rerun this command."
         )
 
     result = subprocess.run(
@@ -39,17 +38,14 @@ def _require_docker() -> None:
     if result.returncode != 0:
         details = result.stderr.strip() or result.stdout.strip()
         raise RuntimeError(
-            "Docker is installed but unavailable. Start Docker Desktop and rerun "
-            f"this command.\n{details}"
+            f"Docker is installed but unavailable. Start Docker Desktop and rerun this command.\n{details}"
         )
 
 
 def _require_uv() -> str:
     uv = shutil.which("uv")
     if uv is None:
-        raise RuntimeError(
-            "uv is required to prepare the offline Linux build environment."
-        )
+        raise RuntimeError("uv is required to prepare the offline Linux build environment.")
     return uv
 
 
@@ -62,9 +58,7 @@ def _sha256(path: Path) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Build the LakeBench Linux x86_64 wheel using Docker."
-    )
+    parser = argparse.ArgumentParser(description="Build the LakeBench Linux x86_64 wheel using Docker.")
     parser.add_argument(
         "--output-dir",
         type=Path,
@@ -74,11 +68,7 @@ def main() -> int:
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parents[1]
-    output_dir = (
-        args.output_dir
-        if args.output_dir.is_absolute()
-        else project_root / args.output_dir
-    )
+    output_dir = args.output_dir if args.output_dir.is_absolute() else project_root / args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
     _require_docker()
@@ -87,9 +77,7 @@ def main() -> int:
     configuration = _project_configuration(project_root)
     version = configuration["project"]["version"]
     wheel_pattern = f"lakebench-{version}-py3-none-manylinux_2_17_x86_64.whl"
-    current_linux_wheels = (
-        f"lakebench-{version}-py3-none-*manylinux*x86_64.whl"
-    )
+    current_linux_wheels = f"lakebench-{version}-py3-none-*manylinux*x86_64.whl"
     for existing_wheel in output_dir.glob(current_linux_wheels):
         existing_wheel.unlink()
 
@@ -112,9 +100,7 @@ def main() -> int:
         )
 
         environment = os.environ.copy()
-        environment["CIBW_ENVIRONMENT"] = (
-            "PYTHONPATH=/project/.cibuildwheel-build-requirements"
-        )
+        environment["CIBW_ENVIRONMENT"] = "PYTHONPATH=/project/.cibuildwheel-build-requirements"
         environment["CIBW_BUILD_FRONTEND"] = "build; args: --no-isolation"
         environment["CIBW_REPAIR_WHEEL_COMMAND_LINUX"] = ""
         subprocess.run(
@@ -137,9 +123,7 @@ def main() -> int:
 
     wheels = sorted(output_dir.glob(wheel_pattern))
     if len(wheels) != 1:
-        raise RuntimeError(
-            f"Expected one {wheel_pattern} artifact, found {len(wheels)}."
-        )
+        raise RuntimeError(f"Expected one {wheel_pattern} artifact, found {len(wheels)}.")
 
     wheel = wheels[0]
     print(f"Built {wheel}")
