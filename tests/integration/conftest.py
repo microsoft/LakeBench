@@ -26,8 +26,7 @@ import warnings
 
 import pytest
 
-pytest.importorskip("duckdb", reason="requires lakebench[tpcds_datagen] extra")
-pytest.importorskip("pyarrow", reason="requires lakebench[tpcds_datagen] extra")
+pytest.importorskip("pyarrow", reason="integration tests require LakeBench's core pyarrow dependency")
 
 # ---------------------------------------------------------------------------
 # Session-level result collector (populated by report_and_assert)
@@ -216,7 +215,8 @@ def tpcds_parquet_dir(tmp_path_factory):
 
     data_dir = tmp_path_factory.mktemp("tpcds_sf0.1")
     print(f"\n[datagen] Generating TPC-DS SF0.1 -> {data_dir}")
-    TPCDSDataGenerator(scale_factor=0.1, target_folder_uri=str(data_dir)).run()
+    pytest.importorskip("duckdb", reason="source integration tests use the legacy DuckDB fallback")
+    TPCDSDataGenerator(scale_factor=0.1, target_folder_uri=str(data_dir), backend="duckdb").run()
     return str(data_dir)
 
 

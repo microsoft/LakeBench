@@ -1,0 +1,103 @@
+name: Native LakeBench wheels
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TPCGEN_COMMIT: a0e30d55358bd5a21f2981e92b5978cdcb669d95
+  TPCGEN_LOCK_COMMIT: 1ec501fc4f23ee527b5da5dce646fb3c5dba2385
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: ubuntu-22.04
+            target: x86_64
+            wheel_tag: py3-none-manylinux_2_17_x86_64
+          - platform: windows
+            runner: windows-latest
+            target: x64
+            wheel_tag: py3-none-win_amd64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out pinned tpcgen-rs
+        uses: actions/checkout@v4
+        with:
+          repository: datafusion-contrib/tpcgen-rs
+          ref: ${{ env.TPCGEN_COMMIT }}
+          path: .build/tpcgen-rs
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Add pinned upstream lockfile
+        shell: pwsh
+        run: |
+          Invoke-WebRequest `
+            "https://raw.githubusercontent.com/datafusion-contrib/tpcgen-rs/${{ env.TPCGEN_LOCK_COMMIT }}/Cargo.lock" `
+            -OutFile .build/tpcgen-rs/Cargo.lock
+
+      - name: Build pinned tpcgen-cli wheel
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b
+        with:
+          target: ${{ matrix.target }}
+          args: --locked --release --out dist
+          working-directory: .build/tpcgen-rs/tpcgen-cli
+          manylinux: ${{ matrix.platform == 'linux' && '2_17' || '' }}
+
+      - name: Stage and verify tpcgen-cli
+        id: stage
+        shell: pwsh
+        run: |
+          $lines = python scripts/stage_tpcgen_binary.py `
+            --wheel-directory .build/tpcgen-rs/tpcgen-cli/dist `
+            --upstream-root .build/tpcgen-rs `
+            --output-directory .build/tpcgen-bundle `
+            --platform ${{ matrix.platform }}
+          $lines | ForEach-Object {
+            Write-Host $_
+            Add-Content -Path $env:GITHUB_OUTPUT -Value $_
+          }
+
+      - name: Build self-contained LakeBench wheel
+        shell: pwsh
+        env:
+          LAKEBENCH_TPCGEN_BINARY: ${{ steps.stage.outputs.binary }}
+          LAKEBENCH_TPCGEN_PROVENANCE: ${{ steps.stage.outputs.provenance }}
+          LAKEBENCH_TPCGEN_LICENSE: ${{ steps.stage.outputs.license }}
+          LAKEBENCH_WHEEL_TAG: ${{ matrix.wheel_tag }}
+        run: uv build --wheel
+
+      - name: Install and smoke test LakeBench wheel
+        shell: pwsh
+        run: |
+          $wheel = (Get-ChildItem dist\lakebench-*.whl | Select-Object -First 1).FullName
+          uv venv .build/wheel-test
+          if ("${{ matrix.platform }}" -eq "windows") {
+            $python = ".build\wheel-test\Scripts\python.exe"
+          } else {
+            $python = ".build/wheel-test/bin/python"
+          }
+          uv pip install --python $python $wheel
+          & $python -c "from lakebench.datagen._tpcgen_cli import TpcgenCli; print(TpcgenCli().run(['tpcds', '--help']).returncode)"
+          & $python scripts/smoke_test_tpcgen_bundle.py
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: lakebench-${{ matrix.platform }}-x86_64
+          path: dist/lakebench-*.whl
+          if-no-files-found: error

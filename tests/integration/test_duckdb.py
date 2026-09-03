@@ -2,7 +2,7 @@
 Integration tests: all benchmarks with the DuckDB engine.
 
 Run with:
-    uv sync --group dev --extra duckdb --extra tpcds_datagen --extra tpch_datagen
+    uv sync --group dev --extra duckdb --extra tpcds_duckdb_datagen --extra tpch_datagen
     uv run pytest tests/integration/test_tpc_duckdb.py -v -s
 """
 

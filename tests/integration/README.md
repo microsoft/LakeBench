@@ -18,32 +18,32 @@ Tests are marked `@pytest.mark.integration` and are **not** collected by default
 
 ### DuckDB
 ```bash
-uv sync --group dev --extra duckdb --extra tpch_datagen --extra tpcds_datagen
+uv sync --group dev --extra duckdb --extra tpch_datagen --extra tpcds_duckdb_datagen
 uv run pytest tests/integration/test_duckdb.py -v -s
 ```
 
 ### Daft
 ```bash
-uv sync --group dev --extra daft --extra tpch_datagen --extra tpcds_datagen
+uv sync --group dev --extra daft --extra tpch_datagen --extra tpcds_duckdb_datagen
 uv run pytest tests/integration/test_daft.py -v -s
 ```
 
 ### Polars
 ```bash
-uv sync --group dev --extra polars --extra tpch_datagen --extra tpcds_datagen
+uv sync --group dev --extra polars --extra tpch_datagen --extra tpcds_duckdb_datagen
 uv run pytest tests/integration/test_polars.py -v -s
 ```
 
 ### Spark
 > `spark` and `sail` extras are mutually exclusive — use a separate venv if you need both.
 ```bash
-uv sync --group dev --extra spark --extra tpch_datagen --extra tpcds_datagen
+uv sync --group dev --extra spark --extra tpch_datagen --extra tpcds_duckdb_datagen
 uv run pytest tests/integration/test_spark.py -v -s
 ```
 
 ### Sail
 ```bash
-uv sync --group dev --extra sail --extra tpch_datagen --extra tpcds_datagen
+uv sync --group dev --extra sail --extra tpch_datagen --extra tpcds_duckdb_datagen
 uv run pytest tests/integration/test_sail.py -v -s
 ```
 
@@ -75,7 +75,7 @@ DuckDB and Polars share no conflicts and can run in one sync:
 
 ```bash
 uv sync --group dev --extra duckdb --extra polars \
-        --extra tpch_datagen --extra tpcds_datagen
+        --extra tpch_datagen --extra tpcds_duckdb_datagen
 uv run pytest tests/integration/test_duckdb.py \
               tests/integration/test_polars.py -v -s
 ```
