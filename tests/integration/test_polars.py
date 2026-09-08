@@ -32,7 +32,9 @@ def test_tpch_polars(tpch_parquet_dir, tmp_path):
 def test_tpcds_polars(tpcds_parquet_dir, tmp_path):
     from lakebench.benchmarks import TPCDS
 
-    results, exc = run_benchmark(_engine(tmp_path, "tpcds"), TPCDS, tpcds_parquet_dir, "load_and_query", scale_factor=0.1)
+    results, exc = run_benchmark(
+        _engine(tmp_path, "tpcds"), TPCDS, tpcds_parquet_dir, "load_and_query", scale_factor=0.1
+    )
     report_and_assert(results, "TPC-DS", "Polars", exc)
 
 
