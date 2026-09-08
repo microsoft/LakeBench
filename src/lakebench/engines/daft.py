@@ -1,7 +1,7 @@
 import os
 import posixpath
 from importlib.metadata import version
-from typing import Optional
+from typing import Mapping, Optional
 
 from ..utils.path_utils import to_local_path
 from .base import BaseEngine
@@ -71,8 +71,15 @@ class Daft(BaseEngine):
         table_name: str,
         table_is_precreated: bool = False,
         context_decorator: Optional[str] = None,
+        column_name_mapping: Optional[Mapping[str, str]] = None,
     ):
         table_df = self.daft.read_parquet(to_local_path(posixpath.join(parquet_folder_uri)))
+        columns = [field.name for field in table_df.schema()]
+        resolved_mapping = self._resolve_column_name_mapping(table_name, columns, column_name_mapping)
+        if resolved_mapping:
+            table_df = table_df.select(
+                *[self.daft.col(column).alias(resolved_mapping.get(column, column)) for column in columns]
+            )
         self.write_delta(table_df, self.table_path(table_name), mode="overwrite")
 
     def register_table(self, table_name: str):

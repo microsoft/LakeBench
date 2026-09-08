@@ -31,6 +31,10 @@ class TPCDSDataGenerator:
     multithreading : bool, default=True
         Whether the Rust generator should use all available CPU cores. When
         false, generation uses one thread.
+    num_threads : int, optional
+        Explicit Rust worker-thread limit. Use a lower value such as 8 or 16
+        for large generations targeting mounted filesystems. Cannot be
+        combined with ``multithreading=False``.
     backend : {"rust", "duckdb"}, default="rust"
         Data generator backend. DuckDB is retained as an explicit legacy fallback.
     compression_factor : float, optional
@@ -54,6 +58,7 @@ class TPCDSDataGenerator:
         compression: str = "ZSTD(1)",
         table_list: Optional[List[str]] = None,
         multithreading: bool = True,
+        num_threads: Optional[int] = None,
         backend: str = "rust",
         compression_factor: Optional[float] = None,
     ) -> None:
@@ -70,6 +75,7 @@ class TPCDSDataGenerator:
                 compression=compression,
                 table_list=table_list,
                 multithreading=multithreading,
+                num_threads=num_threads,
                 compression_factor=compression_factor,
             )
         elif backend == "duckdb":
@@ -77,6 +83,7 @@ class TPCDSDataGenerator:
                 "compression": compression if compression != "ZSTD(1)" else None,
                 "table_list": table_list,
                 "multithreading": False if not multithreading else None,
+                "num_threads": num_threads,
                 "compression_factor": compression_factor,
             }
             specified_options = [name for name, value in rust_options.items() if value is not None]

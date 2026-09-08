@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import posixpath
 from importlib.metadata import version
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from .base import BaseEngine
 from .delta_rs import DeltaRs
@@ -78,10 +78,27 @@ class DuckDB(BaseEngine):
         table_name: str,
         table_is_precreated: bool = False,
         context_decorator: Optional[str] = None,
+        column_name_mapping: Optional[Mapping[str, str]] = None,
     ):
-        arrow_df = self.duckdb.sql(
+        parquet_relation = self.duckdb.sql(
             f""" FROM parquet_scan('{posixpath.join(parquet_folder_uri, "*.parquet")}') """
-        ).fetch_record_batch()
+        )
+        resolved_mapping = self._resolve_column_name_mapping(table_name, parquet_relation.columns, column_name_mapping)
+        if resolved_mapping:
+
+            def quote_identifier(identifier: str) -> str:
+                return f'"{identifier.replace(chr(34), chr(34) * 2)}"'
+
+            projection = ", ".join(
+                (
+                    f"{quote_identifier(column)} AS {quote_identifier(resolved_mapping[column])}"
+                    if column in resolved_mapping
+                    else quote_identifier(column)
+                )
+                for column in parquet_relation.columns
+            )
+            parquet_relation = parquet_relation.select(projection)
+        arrow_df = parquet_relation.fetch_record_batch()
         self.deltars.write_deltalake(
             table_or_uri=posixpath.join(self.schema_or_working_directory_uri, table_name),
             data=arrow_df,

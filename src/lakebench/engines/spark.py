@@ -1,6 +1,6 @@
 import os
 import posixpath
-from typing import Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 import tenacity
 
@@ -389,8 +389,12 @@ class Spark(BaseEngine):
         table_name: str,
         table_is_precreated: bool = False,
         context_decorator: Optional[str] = None,
+        column_name_mapping: Optional[Mapping[str, str]] = None,
     ):
         df = self.spark.read.parquet(parquet_folder_uri)
+        resolved_mapping = self._resolve_column_name_mapping(table_name, df.columns, column_name_mapping)
+        if resolved_mapping:
+            df = df.withColumnsRenamed(resolved_mapping)
         if table_is_precreated:
             df.write.insertInto(table_name, overwrite=False)
         else:

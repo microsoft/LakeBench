@@ -41,7 +41,7 @@ _RESULTS: list[dict] = []
 
 def report_and_assert(results, benchmark_name: str, engine_label: str, run_exception=None, min_pass_rate: float = 0.0):
     """Print a run summary, emit warnings on partial failures, and assert
-    pass rate meets *min_pass_rate*.
+    all table loads succeed and query/task pass rate meets *min_pass_rate*.
 
     min_pass_rate=0.0 (default) — at least one step must succeed (⚠️ engines).
     min_pass_rate=1.0           — every step must succeed        (✅ engines).
@@ -129,9 +129,9 @@ def report_and_assert(results, benchmark_name: str, engine_label: str, run_excep
         print(f"  [WARN] raised before completion: {type(run_exception).__name__}: {str(run_exception)[:200]}")
     print(f"{'=' * 60}")
 
-    if lf and len(lf) == len(load_results) and len(load_results) > 0:
+    if lf:
         pytest.fail(
-            f"{benchmark_name} [{engine_label}]: ALL {len(load_results)} tables failed to load. "
+            f"{benchmark_name} [{engine_label}]: {len(lf)} of {len(load_results)} tables failed to load. "
             f"First error: {lf[0]['error_message'][:200]}"
         )
 

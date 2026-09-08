@@ -338,6 +338,39 @@ def test_row_group_target_is_adjusted_for_compression(tmp_path, fake_executable)
     assert int(command[command.index("--row-group-bytes") + 1]) == round(64 * 3.25 * 1.05 * 1024 * 1024)
 
 
+def test_explicit_num_threads_is_passed_to_cli(tmp_path, fake_executable):
+    generator = _TPCDSRsDataGenerator(
+        scale_factor=1,
+        target_folder_uri=str(tmp_path),
+        table_list=["reason"],
+        num_threads=8,
+    )
+
+    command = generator._build_command(tmp_path, ["reason"], 1)
+
+    assert command[command.index("--num-threads") + 1] == "8"
+
+
+@pytest.mark.parametrize("num_threads", [0, -1])
+def test_num_threads_must_be_positive(tmp_path, fake_executable, num_threads):
+    with pytest.raises(ValueError, match="num_threads must be greater than zero"):
+        _TPCDSRsDataGenerator(
+            scale_factor=1,
+            target_folder_uri=str(tmp_path),
+            num_threads=num_threads,
+        )
+
+
+def test_num_threads_conflicts_with_disabled_multithreading(tmp_path, fake_executable):
+    with pytest.raises(ValueError, match="cannot be combined"):
+        _TPCDSRsDataGenerator(
+            scale_factor=1,
+            target_folder_uri=str(tmp_path),
+            multithreading=False,
+            num_threads=8,
+        )
+
+
 def test_non_default_compression_requires_factor(tmp_path, fake_executable):
     with pytest.raises(ValueError, match="compression_factor is required"):
         _TPCDSRsDataGenerator(
@@ -460,6 +493,20 @@ def test_cli_surfaces_subprocess_output(monkeypatch, fake_executable):
     with pytest.raises(RuntimeError, match="partial output") as exc_info:
         TpcgenCli().run(["tpcds", "parquet"])
     assert "bad option" in str(exc_info.value)
+
+
+def test_cli_explains_mounted_filesystem_rename_errors(monkeypatch, fake_executable):
+    error = subprocess.CalledProcessError(
+        1,
+        [fake_executable],
+        stderr='Failed to rename "part.parquet.inprogress" to "part.parquet": Input/output error (os error 5)',
+    )
+    monkeypatch.setattr(subprocess, "run", Mock(side_effect=error))
+
+    with pytest.raises(RuntimeError, match="num_threads=8") as exc_info:
+        TpcgenCli().run(["tpcds", "parquet"])
+
+    assert "mounted filesystem" in str(exc_info.value)
 
 
 def test_shared_cli_runner_accepts_future_tpch_command(monkeypatch, fake_executable):

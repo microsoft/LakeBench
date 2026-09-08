@@ -90,4 +90,10 @@ class TpcgenCli:
                 details.append(f"stdout:\n{exc.stdout.rstrip()}")
             if exc.stderr:
                 details.append(f"stderr:\n{exc.stderr.rstrip()}")
+                if "Failed to rename" in exc.stderr and "os error 5" in exc.stderr:
+                    details.append(
+                        "The target mounted filesystem returned an I/O error while finalizing a generated file. "
+                        "Remove the incomplete table directory and retry with a lower num_threads value, such as "
+                        "num_threads=8 or num_threads=16, to reduce concurrent file creation and rename pressure."
+                    )
             raise RuntimeError("\n".join(details)) from exc
