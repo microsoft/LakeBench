@@ -40,7 +40,6 @@ class _TpcgenRsDataGenerator:
         target_row_group_size_mb: int = 128,
         compression: str = "ZSTD(1)",
         table_list: Optional[List[str]] = None,
-        multithreading: bool = True,
         num_threads: Optional[int] = None,
         compression_factor: Optional[float] = None,
     ) -> None:
@@ -58,10 +57,10 @@ class _TpcgenRsDataGenerator:
             raise ValueError("scale_factor must be greater than zero.")
         if target_row_group_size_mb <= 0:
             raise ValueError("target_row_group_size_mb must be greater than zero.")
-        if num_threads is not None and num_threads <= 0:
-            raise ValueError("num_threads must be greater than zero.")
-        if num_threads is not None and not multithreading:
-            raise ValueError("num_threads cannot be combined with multithreading=False.")
+        if num_threads is not None and (
+            isinstance(num_threads, bool) or not isinstance(num_threads, int) or num_threads <= 0
+        ):
+            raise ValueError("num_threads must be a positive integer.")
 
         compression = compression.upper()
         if not self.COMPRESSION_PATTERN.fullmatch(compression):
@@ -91,7 +90,7 @@ class _TpcgenRsDataGenerator:
             table_name: self._resolve_compression_factor(table_name, compression_factor)
             for table_name in self.table_list
         }
-        self.num_threads = num_threads if num_threads is not None else ((os.cpu_count() or 1) if multithreading else 1)
+        self.num_threads = num_threads if num_threads is not None else (os.cpu_count() or 1)
         self.cli = TpcgenCli()
         self.parts_by_table = {table_name: self._calculate_optimal_parts(table_name) for table_name in self.table_list}
 

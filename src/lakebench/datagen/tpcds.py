@@ -28,13 +28,10 @@ class TPCDSDataGenerator:
         Parquet compression used by the Rust backend.
     table_list : list of str, optional
         TPC-DS tables to generate. The Rust backend generates all 24 tables by default.
-    multithreading : bool, default=True
-        Whether the Rust generator should use all available CPU cores. When
-        false, generation uses one thread.
     num_threads : int, optional
-        Explicit Rust worker-thread limit. Use a lower value such as 8 or 16
-        for large generations targeting mounted filesystems. Cannot be
-        combined with ``multithreading=False``.
+        Rust worker-thread count. Defaults to all available CPU cores. Use a
+        lower value such as 8 or 16 for large generations targeting mounted
+        filesystems.
     backend : {"rust", "duckdb"}, default="rust"
         Data generator backend. DuckDB is retained as an explicit legacy fallback.
     compression_factor : float, optional
@@ -57,7 +54,6 @@ class TPCDSDataGenerator:
         target_row_group_size_mb: int = 128,
         compression: str = "ZSTD(1)",
         table_list: Optional[List[str]] = None,
-        multithreading: bool = True,
         num_threads: Optional[int] = None,
         backend: str = "rust",
         compression_factor: Optional[float] = None,
@@ -74,7 +70,6 @@ class TPCDSDataGenerator:
                 target_row_group_size_mb=target_row_group_size_mb,
                 compression=compression,
                 table_list=table_list,
-                multithreading=multithreading,
                 num_threads=num_threads,
                 compression_factor=compression_factor,
             )
@@ -82,7 +77,6 @@ class TPCDSDataGenerator:
             rust_options = {
                 "compression": compression if compression != "ZSTD(1)" else None,
                 "table_list": table_list,
-                "multithreading": False if not multithreading else None,
                 "num_threads": num_threads,
                 "compression_factor": compression_factor,
             }

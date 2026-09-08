@@ -16,7 +16,7 @@ def main() -> None:
             target_folder_uri=str(inventory_output),
             target_row_group_size_mb=16,
             table_list=["inventory"],
-            multithreading=False,
+            num_threads=1,
         ).run()
 
         inventory_file = inventory_output / "inventory" / "inventory-00001.zstd.parquet"
@@ -32,7 +32,7 @@ def main() -> None:
             target_folder_uri=str(schema_output),
             target_row_group_size_mb=16,
             table_list=["customer", "reason", "store_sales"],
-            multithreading=False,
+            num_threads=1,
         ).run()
 
         customer_schema = pq.read_schema(schema_output / "customer" / "customer-00001.zstd.parquet")
@@ -54,7 +54,7 @@ def main() -> None:
             target_folder_uri=str(tpch_output),
             target_row_group_size_mb=16,
             table_list=["region"],
-            multithreading=False,
+            num_threads=1,
         ).run()
         region_file = tpch_output / "region" / "region-00001.zstd.parquet"
         region_rows = pq.ParquetFile(region_file).metadata.num_rows

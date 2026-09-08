@@ -37,7 +37,7 @@ def test_rust_generator_builds_automatic_multipart_command_and_outputs(tmp_path,
         scale_factor=10,
         target_folder_uri=str(output_dir),
         table_list=["store_sales"],
-        multithreading=False,
+        num_threads=1,
     )
 
     def create_outputs(args):
@@ -96,7 +96,7 @@ def test_tpch_uses_unified_cli_and_normalizes_outputs(tmp_path, fake_executable)
         scale_factor=10,
         target_folder_uri=str(output_dir),
         table_list=["lineitem"],
-        multithreading=False,
+        num_threads=1,
     )
 
     def create_outputs(args):
@@ -351,23 +351,26 @@ def test_explicit_num_threads_is_passed_to_cli(tmp_path, fake_executable):
     assert command[command.index("--num-threads") + 1] == "8"
 
 
-@pytest.mark.parametrize("num_threads", [0, -1])
-def test_num_threads_must_be_positive(tmp_path, fake_executable, num_threads):
-    with pytest.raises(ValueError, match="num_threads must be greater than zero"):
+def test_num_threads_defaults_to_available_cpu_count(monkeypatch, tmp_path, fake_executable):
+    monkeypatch.setattr("lakebench.datagen._tpcgen_rs.os.cpu_count", lambda: 12)
+    generator = _TPCDSRsDataGenerator(
+        scale_factor=1,
+        target_folder_uri=str(tmp_path),
+        table_list=["reason"],
+    )
+
+    command = generator._build_command(tmp_path, ["reason"], 1)
+
+    assert command[command.index("--num-threads") + 1] == "12"
+
+
+@pytest.mark.parametrize("num_threads", [0, -1, 1.5, True])
+def test_num_threads_must_be_a_positive_integer(tmp_path, fake_executable, num_threads):
+    with pytest.raises(ValueError, match="num_threads must be a positive integer"):
         _TPCDSRsDataGenerator(
             scale_factor=1,
             target_folder_uri=str(tmp_path),
             num_threads=num_threads,
-        )
-
-
-def test_num_threads_conflicts_with_disabled_multithreading(tmp_path, fake_executable):
-    with pytest.raises(ValueError, match="cannot be combined"):
-        _TPCDSRsDataGenerator(
-            scale_factor=1,
-            target_folder_uri=str(tmp_path),
-            multithreading=False,
-            num_threads=8,
         )
 
 
@@ -439,13 +442,13 @@ def test_public_generator_rejects_unknown_backend(tmp_path):
 
 
 def test_duckdb_backend_rejects_rust_only_options(tmp_path):
-    with pytest.raises(ValueError, match="compression, multithreading"):
+    with pytest.raises(ValueError, match="compression, num_threads"):
         TPCDSDataGenerator(
             1,
             str(tmp_path),
             backend="duckdb",
             compression="SNAPPY",
-            multithreading=False,
+            num_threads=1,
         )
 
 
