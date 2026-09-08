@@ -7,9 +7,9 @@ import subprocess
 import zipfile
 from pathlib import Path
 
-UPSTREAM_REPOSITORY = "https://github.com/datafusion-contrib/tpcgen-rs"
-UPSTREAM_COMMIT = "a0e30d55358bd5a21f2981e92b5978cdcb669d95"
-UPSTREAM_LOCK_COMMIT = "1ec501fc4f23ee527b5da5dce646fb3c5dba2385"
+UPSTREAM_REPOSITORY = "https://github.com/mwc360/tpcgen-rs"
+UPSTREAM_COMMIT = "4d77d576802a05705b9cdea65bae965736652c9e"
+UPSTREAM_LOCK_COMMIT = "40cedfdc6ec7f47080660808897752436d662d0c"
 
 
 def find_upstream_wheel(wheel_directory: Path) -> Path:
@@ -77,7 +77,7 @@ def main() -> None:
         "repository": UPSTREAM_REPOSITORY,
         "commit": UPSTREAM_COMMIT,
         "cargo_lock_commit": UPSTREAM_LOCK_COMMIT,
-        "source_branch": "cl/feat/support-specific-part-generation",
+        "source_branch": "users/mcole/align-tpcds-schema-and-parts",
         "pull_request": "https://github.com/datafusion-contrib/tpcgen-rs/pull/406",
         "cli_version": version,
         "platform": args.platform,

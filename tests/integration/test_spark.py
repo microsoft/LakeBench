@@ -79,7 +79,7 @@ def _run(engine_or_exc, BenchmarkCls, input_dir, run_mode, benchmark_name, **kwa
             UserWarning,
             stacklevel=2,
         )
-        return [], None
+        return [], engine_or_exc
     return run_benchmark(engine_or_exc, BenchmarkCls, input_dir, run_mode, **kwargs)
 
 

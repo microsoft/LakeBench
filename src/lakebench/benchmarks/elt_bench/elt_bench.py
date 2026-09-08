@@ -55,6 +55,7 @@ class ELTBench(BaseBenchmark):
         Sail: SailELTBench,
     }
     MODE_REGISTRY = ["light"]
+    COLUMN_NAME_MAPPING_REGISTRY = TPCDS.COLUMN_NAME_MAPPING_REGISTRY
     TABLE_REGISTRY = [
         "call_center",
         "catalog_page",
@@ -210,6 +211,7 @@ class ELTBench(BaseBenchmark):
                     table_name=table_name,
                     table_is_precreated=True,
                     context_decorator=tc.context_decorator,
+                    column_name_mapping=self.COLUMN_NAME_MAPPING_REGISTRY.get(table_name),
                 )
         with self.timer(phase="Create fact table", test_item="total_sales_fact", engine=self.engine):
             self.benchmark_impl.create_total_sales_fact()

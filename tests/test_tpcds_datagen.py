@@ -477,7 +477,7 @@ def test_vendored_binary_checksums_match_provenance():
         binary_path = bundle_root / platform_directory / binary_name
         manifest = TpcgenCli._validate_packaged_binary(binary_path)
 
-        assert manifest["commit"] == "a0e30d55358bd5a21f2981e92b5978cdcb669d95"
+        assert manifest["commit"] == "4d77d576802a05705b9cdea65bae965736652c9e"
         assert manifest["binary_name"] == binary_name
 
 

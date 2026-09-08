@@ -177,15 +177,15 @@ pip install lakebench[duckdb,polars,tpcds_datagen,tpch_datagen,sparkmeasure]
 To run any LakeBench benchmark, first do a one time generation of the data required for the benchmark and scale of interest. LakeBench provides datagen classes to quickly generate parquet datasets required by the benchmarks.
 
 ### Data Generation
-- **TPC-H** and **TPC-DS** data generation is blazing fast via a pinned build of the unified Rust `tpcgen-cli` from [datafusion-contrib/tpcgen-rs#406](https://github.com/datafusion-contrib/tpcgen-rs/pull/406). The temporary Windows x86_64 and manylinux 2.17 x86_64 executables are committed under `native/tpcgen`. LakeBench will migrate to the official `tpcgen-cli` Python package after it is released on PyPI.
+- **TPC-H** and **TPC-DS** data generation is blazing fast via a pinned build of the unified Rust `tpcgen-cli` from the [tpcgen-rs](https://github.com/datafusion-contrib/tpcgen-rs) project. The temporary Windows x86_64 and manylinux 2.17 x86_64 executables are committed under `native/tpcgen`. LakeBench will migrate to the official `tpcgen-cli` Python package after it is released on PyPI.
 
     _The below are generation runtimes on a 64 v-core VM writing to OneLake. Scale factors below 1000 can easily be generated on a 2 v-core machine._
-    | Scale Factor | Duration (hh:mm:ss)|
-    |:------------:|:------------------:|
-    | 1            | 00:00:04           |
-    | 10           | 00:00:09           |
-    | 100          | 00:01:09           |
-    | 1000         | 00:10:15           |
+    | Scale Factor | TPC-H Duration (hh:mm:ss)| TPC-DS Duration (hh:mm:ss)|
+    |:------------:|:------------------:|:------------------:|
+    | 1            | 00:00:04           | 00:00:28           |
+    | 10           | 00:00:09           | 00:01:10           |
+    | 100          | 00:01:09           | 00:02:22           |
+    | 1000         | 00:10:15           | 00:12:20           |
 
 - **ClickBench** data is downloaded directly from the Clickhouse host site.
 

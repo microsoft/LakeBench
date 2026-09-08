@@ -2,12 +2,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from lakebench.benchmarks.elt_bench import ELTBench
 from lakebench.benchmarks.tpcds import TPCDS
 from lakebench.engines.base import BaseEngine
 from lakebench.engines.spark import Spark
 
 
 class TestResolveColumnNameMapping:
+    def test_eltbench_uses_tpcds_input_aliases(self):
+        assert ELTBench.COLUMN_NAME_MAPPING_REGISTRY is TPCDS.COLUMN_NAME_MAPPING_REGISTRY
+
     def test_empty_mapping_is_noop(self):
         assert BaseEngine._resolve_column_name_mapping("customer", ["c_customer_sk"], None) == {}
 
