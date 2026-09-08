@@ -33,13 +33,12 @@ class TPCDSDataGenerator:
         false, generation uses one thread.
     backend : {"rust", "duckdb"}, default="rust"
         Data generator backend. DuckDB is retained as an explicit legacy fallback.
-    executable : str, optional
-        Development override for the bundled ``tpcgen-cli`` executable.
     compression_factor : float, optional
         Ratio of uncompressed to on-disk Parquet bytes used to translate the
         requested row-group target and estimate physical table size. Measured
-        per-table defaults are used for ``ZSTD(1)`` and ``SNAPPY``; other
-        compressed codecs require an explicit value.
+        ZSTD levels use per-table factors measured with ``ZSTD(1)`` and
+        ``SNAPPY`` uses its own measured factors; other compressed codecs
+        require an explicit value.
 
     Methods
     -------
@@ -56,7 +55,6 @@ class TPCDSDataGenerator:
         table_list: Optional[List[str]] = None,
         multithreading: bool = True,
         backend: str = "rust",
-        executable: Optional[str] = None,
         compression_factor: Optional[float] = None,
     ) -> None:
         self.scale_factor = scale_factor
@@ -72,7 +70,6 @@ class TPCDSDataGenerator:
                 compression=compression,
                 table_list=table_list,
                 multithreading=multithreading,
-                executable=executable,
                 compression_factor=compression_factor,
             )
         elif backend == "duckdb":
@@ -80,7 +77,6 @@ class TPCDSDataGenerator:
                 "compression": compression if compression != "ZSTD(1)" else None,
                 "table_list": table_list,
                 "multithreading": False if not multithreading else None,
-                "executable": executable,
                 "compression_factor": compression_factor,
             }
             specified_options = [name for name, value in rust_options.items() if value is not None]

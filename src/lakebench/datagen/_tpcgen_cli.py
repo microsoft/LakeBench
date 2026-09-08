@@ -2,10 +2,8 @@ import hashlib
 import json
 import os
 import platform
-import shutil
 import stat
 import subprocess
-import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -13,18 +11,12 @@ from typing import List, Optional, Tuple
 class TpcgenCli:
     """Resolve and invoke the unified tpcgen-cli executable."""
 
-    def __init__(self, executable: Optional[str] = None) -> None:
-        self.executable, self.provenance = self._resolve_executable(executable)
+    def __init__(self) -> None:
+        self.executable, self.provenance = self._resolve_executable()
         self.binary_sha256 = self.provenance["binary_sha256"]
 
     @staticmethod
-    def _resolve_executable(executable: Optional[str]) -> Tuple[str, dict]:
-        if executable is not None:
-            explicit_path = Path(executable).expanduser().resolve()
-            if not explicit_path.is_file():
-                raise FileNotFoundError(f"tpcgen-cli executable was not found at: {explicit_path}")
-            return str(explicit_path), TpcgenCli._external_provenance(explicit_path)
-
+    def _resolve_executable() -> Tuple[str, dict]:
         binary_name = "tpcgen-cli.exe" if os.name == "nt" else "tpcgen-cli"
         packaged_path = Path(__file__).parent / "_bin" / binary_name
         if packaged_path.is_file():
@@ -37,21 +29,12 @@ class TpcgenCli:
             source_tree_path.chmod(source_tree_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
             return str(source_tree_path), manifest
 
-        system_path = shutil.which("tpcgen-cli")
-        if system_path:
-            system_path = Path(system_path)
-            return str(system_path), TpcgenCli._external_provenance(system_path)
-
         machine = platform.machine().lower()
-        fallback_help = (
-            " Alternatively, use backend='duckdb' with lakebench[tpcds_duckdb_datagen]."
-            if sys.version_info >= (3, 10)
-            else " The legacy DuckDB fallback requires Python 3.10 or newer."
-        )
         raise ImportError(
             "The bundled tpcgen-cli executable is unavailable for "
             f"{platform.system()} {machine}. Install a supported LakeBench wheel "
-            f"(Windows x86_64 or Linux x86_64), or provide executable=<path>.{fallback_help}"
+            "(Windows x86_64 or Linux x86_64). TPC-DS can alternatively use "
+            "backend='duckdb' with lakebench[tpcds_duckdb_datagen] on Python 3.10 or newer."
         )
 
     @staticmethod
@@ -88,13 +71,6 @@ class TpcgenCli:
         if actual_hash != expected_hash:
             raise RuntimeError(f"Bundled tpcgen-cli checksum mismatch: expected {expected_hash}, got {actual_hash}.")
         return manifest
-
-    @staticmethod
-    def _external_provenance(binary_path: Path) -> dict:
-        return {
-            "source": "external",
-            "binary_sha256": TpcgenCli._sha256(binary_path),
-        }
 
     @staticmethod
     def _sha256(binary_path: Path) -> str:

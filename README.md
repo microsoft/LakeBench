@@ -168,15 +168,16 @@ pip install lakebench[duckdb,polars,tpcds_datagen,tpch_datagen,sparkmeasure]
 
 > _Note: the `daft` extra pins `deltalake` to 1.5.x (Daft cannot read the Arrow `Utf8View` parquet that `deltalake` 1.6.x emits from `MERGE`), so it must be installed in its own environment rather than alongside `duckdb`, `polars`, or `sail`._
 >
-> `tpcds_datagen` uses the self-contained Rust `tpcgen-cli` binary bundled in
-> the Windows x86_64 and Linux x86_64 LakeBench wheels. The legacy DuckDB
-> generator is available separately through `tpcds_duckdb_datagen`.
+> `tpch_datagen` and `tpcds_datagen` use the same self-contained Rust
+> `tpcgen-cli` binary bundled in the Windows x86_64 and Linux x86_64 LakeBench
+> wheels. The legacy DuckDB TPC-DS generator remains available separately
+> through `tpcds_duckdb_datagen`.
 
 ## Example Usage
 To run any LakeBench benchmark, first do a one time generation of the data required for the benchmark and scale of interest. LakeBench provides datagen classes to quickly generate parquet datasets required by the benchmarks.
 
 ### Data Generation
-- **TPC-H** data generation is provided via the [tpcgen-rs](https://github.com/datafusion-contrib/tpcgen-rs) project's legacy `tpchgen-cli` package. The project is currently about 10x+ faster than the next closest method of generating TPC-H datasets. LakeBench will migrate this path to the unified `tpcgen-cli` package after its official release.
+- **TPC-H** and **TPC-DS** data generation is blazing fast via a pinned build of the unified Rust `tpcgen-cli` from [datafusion-contrib/tpcgen-rs#406](https://github.com/datafusion-contrib/tpcgen-rs/pull/406). The temporary Windows x86_64 and manylinux 2.17 x86_64 executables are committed under `native/tpcgen`. LakeBench will migrate to the official `tpcgen-cli` Python package after it is released on PyPI.
 
     _The below are generation runtimes on a 64 v-core VM writing to OneLake. Scale factors below 1000 can easily be generated on a 2 v-core machine._
     | Scale Factor | Duration (hh:mm:ss)|
@@ -185,8 +186,7 @@ To run any LakeBench benchmark, first do a one time generation of the data requi
     | 10           | 00:00:09           |
     | 100          | 00:01:09           |
     | 1000         | 00:10:15           |
-    
-- **TPC-DS** data generation defaults to a pinned build of the unified Rust `tpcgen-cli` from [datafusion-contrib/tpcgen-rs#406](https://github.com/datafusion-contrib/tpcgen-rs/pull/406). The temporary Windows x86_64 and manylinux 2.17 x86_64 executables are committed under `native/tpcgen`. LakeBench will migrate to taking a dependency straight from `tpcgen-cli` once it's released in PyPi.
+
 - **ClickBench** data is downloaded directly from the Clickhouse host site.
 
 #### TPC-H Data Generation
@@ -219,19 +219,23 @@ _Notes:_
   scale factor; part counts are always selected automatically.
 - `target_row_group_size_mb` is an on-disk compressed-size target. LakeBench
   converts it to the uncompressed-byte value expected by `tpcgen-cli` using
-  per-table ZSTD(1) or Snappy compression ratios measured from SF10
-  C-compatible output on September 3, 2026. Automatic part counts are adjusted
-  for the selected codec. The row-group conversion includes a 5% planning
-  margin for upstream's estimated bytes-per-source-row model. Other compressed
-  codecs require an explicit `compression_factor`, which is used for both row
-  groups and file estimates.
-- Output remains organized as `<root>/<table>/*.parquet`.
+  benchmark- and table-specific ZSTD(1) or Snappy compression ratios measured
+  from SF10 output. All `ZSTD(N)` levels use the ZSTD(1) measurements for
+  planning while the requested compression level is passed through unchanged.
+  Automatic part counts are adjusted for the selected codec. The row-group
+  conversion includes a 5% planning margin for upstream's estimated
+  bytes-per-source-row model. Other compressed codecs require an explicit
+  `compression_factor`, which is used for both row groups and file estimates.
+  TPC-DS generation uses the upstream C-reference compatibility mode.
+- Output remains organized as `<root>/<table>/*.parquet`. Filenames include
+  the one-based part number and codec for quick inspection, for example
+  `lineitem/lineitem-0001.zstd.parquet` or
+  `store_sales/store_sales-0001.zstd.parquet`.
 - To use the legacy implementation, install
   `lakebench[tpcds_duckdb_datagen]` on Python 3.10+ and pass
   `backend="duckdb"`.
-- Editable/source installations use the matching executable from
-  `native/tpcgen`. An explicit `executable=...` override and `PATH` fallback
-  remain available for generator development.
+- Editable/source installations use the matching vendored binary from
+  `native/tpcgen`; installed wheels always use their packaged binary.
 - TPC-DS data up to SF1000 can be generated on a 32-vCore machine. 
 - TPC-H datasets are generated extremely fast (i.e. SF1000 in 10 minutes on an 64-vCore machine).
 - The ClickBench dataset (only 1 size) should download with partitioned files in ~ 1 minute and ~ 6 minutes as a single file. 

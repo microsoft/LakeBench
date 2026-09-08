@@ -9,14 +9,25 @@ import pytest
 
 from lakebench.datagen._tpcds_rs import _TPCDSRsDataGenerator
 from lakebench.datagen._tpcgen_cli import TpcgenCli
+from lakebench.datagen._tpcgen_rs import _TpcgenRsDataGenerator
+from lakebench.datagen._tpch_rs import _TPCHRsDataGenerator
 from lakebench.datagen.tpcds import TPCDSDataGenerator
 from lakebench.datagen.tpch import TPCHDataGenerator
 
 
 @pytest.fixture
-def fake_executable(tmp_path):
+def fake_executable(tmp_path, monkeypatch):
     executable = tmp_path / "tpcgen-cli"
     executable.write_bytes(b"fake")
+    provenance = {
+        "source": "test",
+        "binary_sha256": hashlib.sha256(b"fake").hexdigest(),
+    }
+    monkeypatch.setattr(
+        TpcgenCli,
+        "_resolve_executable",
+        staticmethod(lambda: (str(executable), provenance)),
+    )
     return str(executable)
 
 
@@ -27,7 +38,6 @@ def test_rust_generator_builds_automatic_multipart_command_and_outputs(tmp_path,
         target_folder_uri=str(output_dir),
         table_list=["store_sales"],
         multithreading=False,
-        executable=fake_executable,
     )
 
     def create_outputs(args):
@@ -50,7 +60,9 @@ def test_rust_generator_builds_automatic_multipart_command_and_outputs(tmp_path,
     assert args[args.index("--num-threads") + 1] == "1"
     assert Path(args[args.index("--output-dir") + 1]) == output_dir.resolve()
     assert "--no-progress" in args
-    assert len(list((output_dir / "store_sales").glob("*.parquet"))) == 8
+    assert sorted(path.name for path in (output_dir / "store_sales").glob("*.parquet")) == [
+        f"store_sales-{part_number:04d}.zstd.parquet" for part_number in range(1, 9)
+    ]
     assert not list(output_dir.rglob("*.json"))
 
 
@@ -59,6 +71,92 @@ def test_public_generator_mirrors_tpch_generation_parameters():
     tpch_parameters = list(inspect.signature(TPCHDataGenerator).parameters)
 
     assert tpcds_parameters[:6] == tpch_parameters[:6]
+    assert "executable" not in tpcds_parameters
+    assert "executable" not in tpch_parameters
+
+
+def test_benchmark_variants_share_unified_generator():
+    assert issubclass(_TPCDSRsDataGenerator, _TpcgenRsDataGenerator)
+    assert issubclass(_TPCHRsDataGenerator, _TpcgenRsDataGenerator)
+
+
+def test_unified_generator_supports_file_uri(tmp_path, fake_executable):
+    generator = TPCHDataGenerator(
+        scale_factor=1,
+        target_folder_uri=tmp_path.as_uri(),
+        table_list=["region"],
+    )
+
+    assert generator.target_folder == tmp_path.resolve()
+
+
+def test_tpch_uses_unified_cli_and_normalizes_outputs(tmp_path, fake_executable):
+    output_dir = tmp_path / "tpch"
+    generator = TPCHDataGenerator(
+        scale_factor=10,
+        target_folder_uri=str(output_dir),
+        table_list=["lineitem"],
+        multithreading=False,
+    )
+
+    def create_outputs(args):
+        output_path = Path(args[args.index("--output-dir") + 1])
+        table_dir = output_path / "lineitem"
+        table_dir.mkdir()
+        parts = int(args[args.index("--parts") + 1])
+        for part_number in range(1, parts + 1):
+            (table_dir / f"lineitem.{part_number}.parquet").write_bytes(b"parquet")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    generator.cli.run = Mock(side_effect=create_outputs)
+    generator.run()
+
+    args = generator.cli.run.call_args.args[0]
+    assert args[:2] == ["tpch", "parquet"]
+    assert args[args.index("--tables") + 1] == "lineitem"
+    assert args[args.index("--parts") + 1] == "12"
+    assert "--compat" not in args
+    assert args[args.index("--num-threads") + 1] == "1"
+    assert sorted(path.name for path in (output_dir / "lineitem").glob("*.parquet")) == [
+        f"lineitem-{part_number:04d}.zstd.parquet" for part_number in range(1, 13)
+    ]
+
+
+def test_tpch_snappy_uses_measured_compression(tmp_path, fake_executable):
+    generator = TPCHDataGenerator(
+        scale_factor=10,
+        target_folder_uri=str(tmp_path),
+        target_row_group_size_mb=64,
+        compression="SNAPPY",
+        table_list=["lineitem"],
+    )
+
+    command = generator._build_command(tmp_path, ["lineitem"], generator.parts_by_table["lineitem"])
+
+    assert generator.compression_factors_by_table["lineitem"] == 1.866
+    assert generator._estimated_table_size_gib("lineitem") == pytest.approx(1.924, rel=0.002)
+    assert generator.parts_by_table["lineitem"] == 15
+    assert int(command[command.index("--row-group-bytes") + 1]) == round(64 * 1.866 * 1.05 * 1024 * 1024)
+
+
+def test_tpch_single_part_directory_output_is_normalized(tmp_path, fake_executable):
+    output_dir = tmp_path / "tpch"
+    generator = TPCHDataGenerator(
+        scale_factor=0.01,
+        target_folder_uri=str(output_dir),
+        table_list=["region"],
+    )
+
+    def create_output(args):
+        table_dir = Path(args[args.index("--output-dir") + 1]) / "region"
+        table_dir.mkdir()
+        (table_dir / "region.1.parquet").write_bytes(b"parquet")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    generator.cli.run = Mock(side_effect=create_output)
+    generator.run()
+
+    assert (output_dir / "region" / "region-0001.zstd.parquet").read_bytes() == b"parquet"
 
 
 def test_automatic_parts_group_tables_by_target_size(monkeypatch, tmp_path, fake_executable):
@@ -68,7 +166,6 @@ def test_automatic_parts_group_tables_by_target_size(monkeypatch, tmp_path, fake
         target_folder_uri=str(output_dir),
         table_list=["reason", "store_sales"],
         compression_factor=2.0,
-        executable=fake_executable,
     )
 
     def create_outputs(args):
@@ -102,7 +199,6 @@ def test_default_zstd_row_group_target_uses_per_table_compression(tmp_path, fake
         target_folder_uri=str(tmp_path),
         target_row_group_size_mb=64,
         table_list=["inventory", "store_sales"],
-        executable=fake_executable,
     )
 
     grouped = generator._group_tables_by_generation_settings()
@@ -125,7 +221,6 @@ def test_snappy_uses_measured_compression_for_row_groups_and_parts(tmp_path, fak
         target_row_group_size_mb=64,
         compression="SNAPPY",
         table_list=["store_sales"],
-        executable=fake_executable,
     )
 
     command = generator._build_command(tmp_path, ["store_sales"], generator.parts_by_table["store_sales"])
@@ -133,7 +228,25 @@ def test_snappy_uses_measured_compression_for_row_groups_and_parts(tmp_path, fak
     assert generator.compression_factors_by_table["store_sales"] == 3.005
     assert generator._estimated_table_size_gib("store_sales") == pytest.approx(1.754, rel=0.002)
     assert generator.parts_by_table["store_sales"] == 14
+    assert generator._output_file_name("store_sales", 1) == "store_sales-0001.snappy.parquet"
     assert int(command[command.index("--row-group-bytes") + 1]) == round(64 * 3.005 * 1.05 * 1024 * 1024)
+
+
+def test_all_zstd_levels_use_zstd1_measured_compression(tmp_path, fake_executable):
+    generator = _TPCDSRsDataGenerator(
+        scale_factor=10,
+        target_folder_uri=str(tmp_path),
+        target_row_group_size_mb=64,
+        compression="ZSTD(9)",
+        table_list=["store_sales"],
+    )
+
+    command = generator._build_command(tmp_path, ["store_sales"], generator.parts_by_table["store_sales"])
+
+    assert generator.compression_factors_by_table["store_sales"] == 5.447
+    assert generator.parts_by_table["store_sales"] == 8
+    assert command[command.index("--compression") + 1] == "ZSTD(9)"
+    assert int(command[command.index("--row-group-bytes") + 1]) == round(64 * 5.447 * 1.05 * 1024 * 1024)
 
 
 @pytest.mark.parametrize(
@@ -152,7 +265,6 @@ def test_target_file_size_thresholds(tmp_path, fake_executable, scaled_size_gib,
         scale_factor=1,
         target_folder_uri=str(tmp_path),
         table_list=["reason"],
-        executable=fake_executable,
     )
 
     assert generator._target_file_size_mb(scaled_size_gib) == expected_target_mib
@@ -182,7 +294,6 @@ def test_automatic_parts_scale_directly_from_sf1000(
         scale_factor=scale_factor,
         target_folder_uri=str(tmp_path),
         table_list=[table_name],
-        executable=fake_executable,
     )
 
     assert generator.parts_by_table[table_name] == expected_parts
@@ -208,7 +319,6 @@ def test_table_size_scales_directly_from_sf1000(
         scale_factor=scale_factor,
         target_folder_uri=str(tmp_path),
         table_list=[table_name],
-        executable=fake_executable,
     )
 
     assert generator._estimated_table_size_gib(table_name) == pytest.approx(expected_size_gib, rel=1e-5)
@@ -221,7 +331,6 @@ def test_row_group_target_is_adjusted_for_compression(tmp_path, fake_executable)
         target_row_group_size_mb=64,
         table_list=["reason"],
         compression_factor=3.25,
-        executable=fake_executable,
     )
 
     command = generator._build_command(tmp_path, ["reason"], 1)
@@ -235,7 +344,6 @@ def test_non_default_compression_requires_factor(tmp_path, fake_executable):
             scale_factor=1,
             target_folder_uri=str(tmp_path),
             compression="GZIP(1)",
-            executable=fake_executable,
         )
 
 
@@ -245,7 +353,6 @@ def test_unpartitioned_output_is_normalized_to_table_directory(tmp_path, fake_ex
         scale_factor=0.1,
         target_folder_uri=str(output_dir),
         table_list=["reason"],
-        executable=fake_executable,
     )
 
     def create_output(args):
@@ -256,7 +363,7 @@ def test_unpartitioned_output_is_normalized_to_table_directory(tmp_path, fake_ex
     generator.cli.run = Mock(side_effect=create_output)
     generator.run()
 
-    assert (output_dir / "reason" / "reason.1.parquet").read_bytes() == b"parquet"
+    assert (output_dir / "reason" / "reason-0001.zstd.parquet").read_bytes() == b"parquet"
 
 
 @pytest.mark.parametrize(
@@ -270,7 +377,6 @@ def test_rust_generator_validates_options(tmp_path, fake_executable, kwargs, mes
         _TPCDSRsDataGenerator(
             scale_factor=1,
             target_folder_uri=str(tmp_path / "output"),
-            executable=fake_executable,
             **kwargs,
         )
 
@@ -352,7 +458,7 @@ def test_cli_surfaces_subprocess_output(monkeypatch, fake_executable):
     monkeypatch.setattr(subprocess, "run", Mock(side_effect=error))
 
     with pytest.raises(RuntimeError, match="partial output") as exc_info:
-        TpcgenCli(fake_executable).run(["tpcds", "parquet"])
+        TpcgenCli().run(["tpcds", "parquet"])
     assert "bad option" in str(exc_info.value)
 
 
@@ -360,7 +466,7 @@ def test_shared_cli_runner_accepts_future_tpch_command(monkeypatch, fake_executa
     run = Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
     monkeypatch.setattr(subprocess, "run", run)
 
-    TpcgenCli(fake_executable).run(["tpch", "parquet", "--scale-factor", "1"])
+    TpcgenCli().run(["tpch", "parquet", "--scale-factor", "1"])
 
     run.assert_called_once_with(
         [fake_executable, "tpch", "parquet", "--scale-factor", "1"],
