@@ -225,13 +225,15 @@ class TPCDS(_LoadAndQuery):
         (18, 35, 16, 6, 22, 61, 67, 54, 60, 43, 76, 90, 91, 21, 92, 31, 98, 9, 38, 86, 36, 34, 17, 2, 50, 15, 37, 69, 78, 63, 72, 82, 70, 93, 56, 28, 71, 64, 33, 48, 32, 96, 24, 80, 25, 94, 83, 53, 29, 87, 99, 19, 10, 20, 73, 75, 44, 97, 8, 77, 1, 7, 81, 40, 11, 85, 89, 41, 14, 4, 51, 46, 52, 88, 27, 66, 68, 95, 59, 42, 65, 79, 3, 47, 57, 74, 23, 26, 30, 49, 13, 84, 58, 5, 62, 45, 12, 55, 39),
     )
     # fmt: on
-    DDL_FILE_NAME = "ddl_v3.2.0.sql"
+    DDL_FILE_NAME = "ddl_v4.0.0.sql"
     DDL_VARIANT_REGISTRY = {
-        "partitioned": "ddl_v3.2.0.partitioned.sql",
-        "clustered": "ddl_v3.2.0.clustered.sql",
-        "simple": "ddl_v3.2.0.simple.sql",
+        "partitioned": "ddl_v4.0.0.partitioned.sql",
+        "clustered": "ddl_v4.0.0.clustered.sql",
+        "simple": "ddl_v4.0.0.simple.sql",
+        "partitioned.simple": "ddl_v4.0.0.partitioned.simple.sql",
+        "clustered.simple": "ddl_v4.0.0.clustered.simple.sql",
     }
-    VERSION = "3.2.0"
+    VERSION = "4.0.0"
     ANALYZE_COLUMN_REGISTRY = {
         "call_center": [
             "cc_call_center_sk",
