@@ -8,8 +8,8 @@ from ..engines.spark import Spark
 logger = logging.getLogger(__name__)
 
 
-def _format_timer_label(phase: str, test_item: str, sub_phase: str = None) -> str:
-    return " - ".join(part for part in (phase, sub_phase, test_item) if part)
+def _format_timer_label(phase: str, test_item: str, sub_phase: str = None, progress: str = None) -> str:
+    return " - ".join(part for part in (phase, sub_phase, progress, test_item) if part)
 
 
 def _has_spark_context(engine):
@@ -24,7 +24,13 @@ def _has_spark_context(engine):
 
 
 @contextmanager
-def timer(phase: str = "Elapsed time", test_item: str = "", engine: str = None, sub_phase: str = None):
+def timer(
+    phase: str = "Elapsed time",
+    test_item: str = "",
+    engine: str = None,
+    sub_phase: str = None,
+    progress: str = None,
+):
     if not hasattr(timer, "results"):
         timer.results = []
 
@@ -32,7 +38,7 @@ def timer(phase: str = "Elapsed time", test_item: str = "", engine: str = None, 
         sum(1 for result in timer.results if result[0] == phase and result[1] == test_item and result[2] == sub_phase)
         + 1
     )
-    timer_label = _format_timer_label(phase, test_item, sub_phase)
+    timer_label = _format_timer_label(phase, test_item, sub_phase, progress)
 
     class TimerContext:
         def __init__(self, label: str, iteration: int):

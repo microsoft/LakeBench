@@ -27,6 +27,9 @@ class _LoadAndQuery(BaseBenchmark):
         Sail: None,
     }
     MODE_REGISTRY = ["load", "query", "power_test", "load_and_query"]
+    POWER_TEST_STREAM = 0
+    QUERY_STREAMS = ()
+    QUERY_TEMPLATE_VARIANTS = {}
     BENCHMARK_NAME = ""
     TABLE_REGISTRY = [
         "call_center",
@@ -226,6 +229,7 @@ class _LoadAndQuery(BaseBenchmark):
         self.engine.extended_engine_metadata["optimize"] = str(optimize)
         self.engine.extended_engine_metadata["analyze"] = analyze_mode
 
+        self._power_test_uses_full_stream = query_list is None or query_list == ["*"]
         if query_list is not None:
             expanded_query_list = []
             for query in query_list:
@@ -242,6 +246,7 @@ class _LoadAndQuery(BaseBenchmark):
             self.query_list = expanded_query_list
         else:
             self.query_list = self.QUERY_REGISTRY
+        self.query_progress = None
 
         for base_engine, benchmark_impl in self.BENCHMARK_IMPL_REGISTRY.items():
             if isinstance(engine, base_engine):
@@ -271,20 +276,22 @@ class _LoadAndQuery(BaseBenchmark):
             - 'load': Executes the load test.
             - 'query': Executes the query test.
             - 'power_test': Executes the power test (default).
-            - 'load_and_query': Alias for 'power_test', runs both load and query tests.
+            - 'load_and_query': Runs both load and query tests.
 
         Notes
         -----
         The `MODE_REGISTRY` attribute contains the list of supported modes.
         """
-        self.mode = "load_and_query" if mode in ("power_test", "load_and_query") else mode
+        self.mode = mode
 
         if mode == "load":
             self._run_load_test()
         elif mode == "query":
             self._run_query_test()
-        elif mode in ("power_test", "load_and_query"):
+        elif mode == "power_test":
             self._run_power_test()
+        elif mode == "load_and_query":
+            self._run_load_and_query()
         else:
             raise ValueError(f"Unknown mode '{mode}'. Supported modes: {self.MODE_REGISTRY}.")
 
@@ -379,7 +386,7 @@ class _LoadAndQuery(BaseBenchmark):
         - Results are posted after all tables have been processed.
         """
         # set the mode if the module is being called directly
-        if inspect.currentframe().f_back.f_code.co_name not in ("run", "_run_power_test"):
+        if inspect.currentframe().f_back.f_code.co_name not in ("run", "_run_load_and_query"):
             self.mode = "load"
 
         if self.engine.SUPPORTS_SCHEMA_PREP:
@@ -425,15 +432,27 @@ class _LoadAndQuery(BaseBenchmark):
         Executes a series of SQL queries defined in the `query_list` attribute.
         """
         # set the mode if the module is being called directly
-        if inspect.currentframe().f_back.f_code.co_name not in ("run", "_run_power_test"):
+        if inspect.currentframe().f_back.f_code.co_name not in ("run", "_run_power_test", "_run_load_and_query"):
             self.mode = "query"
 
         if isinstance(self.engine, (DuckDB, Daft, Polars, Sail)):
             for table_name in self.TABLE_REGISTRY:
                 self.engine.register_table(table_name)
-        for query_name in self.query_list:
+        query_count = len(self.query_list)
+        query_progress = self.query_progress
+        if query_progress is None:
+            query_progress = [f"{sequence_number}/{query_count}" for sequence_number in range(1, query_count + 1)]
+        elif len(query_progress) != query_count:
+            raise RuntimeError("Query progress metadata must match the query list length.")
+
+        for progress, query_name in zip(query_progress, self.query_list):
             prepped_query = self._return_query_definition(query_name)
-            with self.timer(phase="Query", test_item=query_name, engine=self.engine) as tc:
+            with self.timer(
+                phase="Query",
+                test_item=query_name,
+                engine=self.engine,
+                progress=progress,
+            ) as tc:
                 if self.benchmark_impl is not None:
                     # If a specific benchmark implementation is defined, use it to perform the query
                     tc.execution_telemetry = self.benchmark_impl.execute_sql_query(
@@ -447,17 +466,49 @@ class _LoadAndQuery(BaseBenchmark):
         self.post_results()
 
     def _run_power_test(self):
-        """
-        Executes the full benchmark by running both the load and query phases.
+        """Executes the benchmark queries without loading data."""
+        original_query_list = self.query_list
+        original_query_progress = self.query_progress
+        self.mode = "power_test"
+        if self.QUERY_STREAMS and self._power_test_uses_full_stream:
+            query_plan = self._query_plan_for_stream(self.POWER_TEST_STREAM)
+            self.query_progress = [progress for progress, _ in query_plan]
+            self.query_list = [query_name for _, query_name in query_plan]
+        try:
+            self._run_query_test()
+        finally:
+            self.query_list = original_query_list
+            self.query_progress = original_query_progress
 
-        This method orchestrates:
-        1. Load phase: Loads data into the target system.
-        2. Query phase: Executes configured SQL queries to evaluate performance.
-        """
+    def _run_load_and_query(self):
+        """Executes the load phase followed by the query phase."""
         self.mode = "load_and_query"
-
         self._run_load_test()
         self._run_query_test()
+
+    @classmethod
+    def _query_names_for_stream(cls, stream_number: int):
+        """Returns executable query names for a benchmark query stream."""
+        return [query_name for _, query_name in cls._query_plan_for_stream(stream_number)]
+
+    @classmethod
+    def _query_plan_for_stream(cls, stream_number: int):
+        """Returns sequence progress and executable query names for a query stream."""
+        if not 0 <= stream_number < len(cls.QUERY_STREAMS):
+            raise ValueError(
+                f"Unknown {cls.BENCHMARK_NAME} stream {stream_number}. "
+                f"Supported streams: 0-{len(cls.QUERY_STREAMS) - 1}."
+            )
+
+        stream = cls.QUERY_STREAMS[stream_number]
+        query_plan = []
+        for sequence_number, query_number in enumerate(stream, start=1):
+            progress = f"{sequence_number}/{len(stream)}"
+            query_plan.extend(
+                (progress, query_name)
+                for query_name in cls.QUERY_TEMPLATE_VARIANTS.get(query_number, (f"q{query_number}",))
+            )
+        return query_plan
 
     def _return_query_definition(self, query_name: str) -> str:
         """

@@ -26,7 +26,7 @@ def test_tpch_daft(tpch_parquet_dir, tmp_path):
     from lakebench.benchmarks import TPCH
 
     results, exc = run_benchmark(
-        _engine(tmp_path, "tpch"), TPCH, to_file_uri(tpch_parquet_dir), "power_test", scale_factor=0.1
+        _engine(tmp_path, "tpch"), TPCH, to_file_uri(tpch_parquet_dir), "load_and_query", scale_factor=0.1
     )
     report_and_assert(results, "TPC-H", "Daft", exc)
 
@@ -36,7 +36,7 @@ def test_tpcds_daft(tpcds_parquet_dir, tmp_path):
     from lakebench.benchmarks import TPCDS
 
     results, exc = run_benchmark(
-        _engine(tmp_path, "tpcds"), TPCDS, to_file_uri(tpcds_parquet_dir), "power_test", scale_factor=0.1
+        _engine(tmp_path, "tpcds"), TPCDS, to_file_uri(tpcds_parquet_dir), "load_and_query", scale_factor=0.1
     )
     report_and_assert(results, "TPC-DS", "Daft", exc)
 
@@ -46,7 +46,7 @@ def test_clickbench_daft(clickbench_parquet_dir, tmp_path):
     from lakebench.benchmarks import ClickBench
 
     results, exc = run_benchmark(
-        _engine(tmp_path, "clickbench"), ClickBench, to_file_uri(clickbench_parquet_dir), "power_test"
+        _engine(tmp_path, "clickbench"), ClickBench, to_file_uri(clickbench_parquet_dir), "load_and_query"
     )
     report_and_assert(results, "ClickBench", "Daft", exc)
 

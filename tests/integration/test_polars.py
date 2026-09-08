@@ -24,7 +24,7 @@ def _engine(tmp_path, name):
 def test_tpch_polars(tpch_parquet_dir, tmp_path):
     from lakebench.benchmarks import TPCH
 
-    results, exc = run_benchmark(_engine(tmp_path, "tpch"), TPCH, tpch_parquet_dir, "power_test", scale_factor=0.1)
+    results, exc = run_benchmark(_engine(tmp_path, "tpch"), TPCH, tpch_parquet_dir, "load_and_query", scale_factor=0.1)
     report_and_assert(results, "TPC-H", "Polars", exc)
 
 
@@ -32,7 +32,9 @@ def test_tpch_polars(tpch_parquet_dir, tmp_path):
 def test_tpcds_polars(tpcds_parquet_dir, tmp_path):
     from lakebench.benchmarks import TPCDS
 
-    results, exc = run_benchmark(_engine(tmp_path, "tpcds"), TPCDS, tpcds_parquet_dir, "power_test", scale_factor=0.1)
+    results, exc = run_benchmark(
+        _engine(tmp_path, "tpcds"), TPCDS, tpcds_parquet_dir, "load_and_query", scale_factor=0.1
+    )
     report_and_assert(results, "TPC-DS", "Polars", exc)
 
 
@@ -40,7 +42,7 @@ def test_tpcds_polars(tpcds_parquet_dir, tmp_path):
 def test_clickbench_polars(clickbench_parquet_dir, tmp_path):
     from lakebench.benchmarks import ClickBench
 
-    results, exc = run_benchmark(_engine(tmp_path, "clickbench"), ClickBench, clickbench_parquet_dir, "power_test")
+    results, exc = run_benchmark(_engine(tmp_path, "clickbench"), ClickBench, clickbench_parquet_dir, "load_and_query")
     report_and_assert(results, "ClickBench", "Polars", exc)
 
 
