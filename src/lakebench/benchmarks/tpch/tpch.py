@@ -124,6 +124,8 @@ class TPCH(_LoadAndQuery):
         "partitioned": "ddl_v3.0.1.partitioned.sql",
         "clustered": "ddl_v3.0.1.clustered.sql",
         "simple": "ddl_v3.0.1.simple.sql",
+        "partitioned.simple": "ddl_v3.0.1.partitioned.simple.sql",
+        "clustered.simple": "ddl_v3.0.1.clustered.simple.sql",
     }
     VERSION = "3.0.1"
     ANALYZE_COLUMN_REGISTRY = {
