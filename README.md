@@ -182,10 +182,10 @@ To run any LakeBench benchmark, first do a one time generation of the data requi
     _The below are generation runtimes on a 64 v-core VM writing to OneLake. Scale factors below 1000 can easily be generated on a 2 v-core machine._
     | Scale Factor | TPC-H Duration (hh:mm:ss)| TPC-DS Duration (hh:mm:ss)|
     |:------------:|:------------------:|:------------------:|
-    | 1            | 00:00:04           | 00:00:28           |
-    | 10           | 00:00:09           | 00:01:10           |
-    | 100          | 00:01:09           | 00:02:22           |
-    | 1000         | 00:10:15           | 00:12:20           |
+    | 1            | 00:00:20           | 00:00:28           |
+    | 10           | 00:00:34           | 00:01:10           |
+    | 100          | 00:01:26           | 00:02:22           |
+    | 1000         | 00:07:49           | 00:12:23           |
 
 - **ClickBench** data is downloaded directly from the Clickhouse host site.
 
@@ -239,8 +239,6 @@ _Notes:_
 - Large generations targeting mounted filesystems can set `num_threads=8` or
   `num_threads=16` to limit concurrent file creation and atomic renames. The
   default remains all available CPU cores.
-- TPC-DS data up to SF1000 can be generated on a 32-vCore machine. 
-- TPC-H datasets are generated extremely fast (i.e. SF1000 in 10 minutes on an 64-vCore machine).
 - The ClickBench dataset (only 1 size) should download with partitioned files in ~ 1 minute and ~ 6 minutes as a single file. 
 
 #### Is BYO Data Supported?
