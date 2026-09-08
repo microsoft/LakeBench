@@ -215,8 +215,7 @@ def tpcds_parquet_dir(tmp_path_factory):
 
     data_dir = tmp_path_factory.mktemp("tpcds_sf0.1")
     print(f"\n[datagen] Generating TPC-DS SF0.1 -> {data_dir}")
-    pytest.importorskip("duckdb", reason="source integration tests use the legacy DuckDB fallback")
-    TPCDSDataGenerator(scale_factor=0.1, target_folder_uri=str(data_dir), backend="duckdb").run()
+    TPCDSDataGenerator(scale_factor=0.1, target_folder_uri=str(data_dir)).run()
     return str(data_dir)
 
 
