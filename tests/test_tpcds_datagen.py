@@ -61,7 +61,7 @@ def test_rust_generator_builds_automatic_multipart_command_and_outputs(tmp_path,
     assert Path(args[args.index("--output-dir") + 1]) == output_dir.resolve()
     assert "--no-progress" in args
     assert sorted(path.name for path in (output_dir / "store_sales").glob("*.parquet")) == [
-        f"store_sales-{part_number:04d}.zstd.parquet" for part_number in range(1, 9)
+        f"store_sales-{part_number:05d}.zstd.parquet" for part_number in range(1, 9)
     ]
     assert not list(output_dir.rglob("*.json"))
 
@@ -118,7 +118,7 @@ def test_tpch_uses_unified_cli_and_normalizes_outputs(tmp_path, fake_executable)
     assert "--compat" not in args
     assert args[args.index("--num-threads") + 1] == "1"
     assert sorted(path.name for path in (output_dir / "lineitem").glob("*.parquet")) == [
-        f"lineitem-{part_number:04d}.zstd.parquet" for part_number in range(1, 13)
+        f"lineitem-{part_number:05d}.zstd.parquet" for part_number in range(1, 13)
     ]
 
 
@@ -156,7 +156,7 @@ def test_tpch_single_part_directory_output_is_normalized(tmp_path, fake_executab
     generator.cli.run = Mock(side_effect=create_output)
     generator.run()
 
-    assert (output_dir / "region" / "region-0001.zstd.parquet").read_bytes() == b"parquet"
+    assert (output_dir / "region" / "region-00001.zstd.parquet").read_bytes() == b"parquet"
 
 
 def test_automatic_parts_group_tables_by_target_size(monkeypatch, tmp_path, fake_executable):
@@ -228,7 +228,7 @@ def test_snappy_uses_measured_compression_for_row_groups_and_parts(tmp_path, fak
     assert generator.compression_factors_by_table["store_sales"] == 3.005
     assert generator._estimated_table_size_gib("store_sales") == pytest.approx(1.754, rel=0.002)
     assert generator.parts_by_table["store_sales"] == 14
-    assert generator._output_file_name("store_sales", 1) == "store_sales-0001.snappy.parquet"
+    assert generator._output_file_name("store_sales", 1) == "store_sales-00001.snappy.parquet"
     assert int(command[command.index("--row-group-bytes") + 1]) == round(64 * 3.005 * 1.05 * 1024 * 1024)
 
 
@@ -363,7 +363,7 @@ def test_unpartitioned_output_is_normalized_to_table_directory(tmp_path, fake_ex
     generator.cli.run = Mock(side_effect=create_output)
     generator.run()
 
-    assert (output_dir / "reason" / "reason-0001.zstd.parquet").read_bytes() == b"parquet"
+    assert (output_dir / "reason" / "reason-00001.zstd.parquet").read_bytes() == b"parquet"
 
 
 @pytest.mark.parametrize(

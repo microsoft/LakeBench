@@ -151,7 +151,7 @@ class _TpcgenRsDataGenerator:
 
     def _output_file_name(self, table_name: str, part_number: int) -> str:
         compression_name = self.compression.partition("(")[0].lower()
-        return f"{table_name}-{part_number:04d}.{compression_name}.parquet"
+        return f"{table_name}-{part_number:05d}.{compression_name}.parquet"
 
     def _group_tables_by_generation_settings(self) -> Dict[Tuple[int, float], List[str]]:
         grouped_tables = defaultdict(list)

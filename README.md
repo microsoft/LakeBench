@@ -229,8 +229,8 @@ _Notes:_
   TPC-DS generation uses the upstream C-reference compatibility mode.
 - Output remains organized as `<root>/<table>/*.parquet`. Filenames include
   the one-based part number and codec for quick inspection, for example
-  `lineitem/lineitem-0001.zstd.parquet` or
-  `store_sales/store_sales-0001.zstd.parquet`.
+  `lineitem/lineitem-00001.zstd.parquet` or
+  `store_sales/store_sales-00001.zstd.parquet`.
 - To use the legacy implementation, install
   `lakebench[tpcds_duckdb_datagen]` on Python 3.10+ and pass
   `backend="duckdb"`.
