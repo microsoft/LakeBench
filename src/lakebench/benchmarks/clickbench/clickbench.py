@@ -45,13 +45,14 @@ class ClickBench(_LoadAndQuery):
         Supported modes are:
             - 'load': Sequentially executes loading the 24 tables.
             - 'query': Sequentially executes the 99 queries.
-            - 'power_test': Executes the load test followed by the query test.
+            - 'power_test': Executes the query test without loading data.
+            - 'load_and_query': Executes the load test followed by the query test.
     _run_load_test()
         Loads the data for the benchmark.
     _run_query_test()
         Executes the queries for the benchmark.
     _run_power_test()
-        Runs both the load and query tests.
+        Runs the query test.
     """
 
     BENCHMARK_IMPL_REGISTRY = {
