@@ -20,6 +20,8 @@ reports/coverage/<engine>.md  whenever report_and_assert is called at least
 once.  Run any integration test to refresh the reports.
 """
 
+from __future__ import annotations
+
 import datetime
 import pathlib
 import warnings
