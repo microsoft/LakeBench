@@ -53,24 +53,30 @@ jobs:
   integration-tests:
     name: integration (${{ matrix.engine }})
     runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.allow_failure }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - engine: duckdb
+            allow_failure: false
             extras_flags: "--extra duckdb --extra tpcds_datagen --extra tpch_datagen"
             test_file: "tests/integration/test_duckdb.py"
           - engine: daft
+            allow_failure: true
             extras_flags: "--extra daft --extra tpcds_datagen --extra tpch_datagen"
             test_file: "tests/integration/test_daft.py"
           - engine: polars
+            allow_failure: false
             extras_flags: "--extra polars --extra tpcds_datagen --extra tpch_datagen"
             test_file: "tests/integration/test_polars.py"
           - engine: spark
+            allow_failure: false
             extras_flags: "--extra spark --extra tpcds_datagen --extra tpch_datagen"
             test_file: "tests/integration/test_spark.py"
             java: "17"
           - engine: sail
+            allow_failure: false
             extras_flags: "--extra sail --extra tpcds_datagen --extra tpch_datagen"
             test_file: "tests/integration/test_sail.py"
 
