@@ -93,7 +93,7 @@ def test_tpch_spark(tpch_parquet_dir, tmp_path):
     from lakebench.benchmarks import TPCH
 
     engine = _engine(tmp_path, "tpch")
-    results, exc = _run(engine, TPCH, tpch_parquet_dir, "power_test", "TPC-H", scale_factor=0.1)
+    results, exc = _run(engine, TPCH, tpch_parquet_dir, "load_and_query", "TPC-H", scale_factor=0.1)
     if results is not None:
         report_and_assert(results, "TPC-H", "Spark", exc, min_pass_rate=1.0)
 
@@ -103,7 +103,7 @@ def test_tpcds_spark(tpcds_parquet_dir, tmp_path):
     from lakebench.benchmarks import TPCDS
 
     engine = _engine(tmp_path, "tpcds")
-    results, exc = _run(engine, TPCDS, tpcds_parquet_dir, "power_test", "TPC-DS", scale_factor=0.1)
+    results, exc = _run(engine, TPCDS, tpcds_parquet_dir, "load_and_query", "TPC-DS", scale_factor=0.1)
     if results is not None:
         report_and_assert(results, "TPC-DS", "Spark", exc, min_pass_rate=1.0)
 
@@ -113,7 +113,7 @@ def test_clickbench_spark(clickbench_parquet_dir, tmp_path):
     from lakebench.benchmarks import ClickBench
 
     engine = _engine(tmp_path, "clickbench")
-    results, exc = _run(engine, ClickBench, clickbench_parquet_dir, "power_test", "ClickBench")
+    results, exc = _run(engine, ClickBench, clickbench_parquet_dir, "load_and_query", "ClickBench")
     if results is not None:
         report_and_assert(results, "ClickBench", "Spark", exc, min_pass_rate=1.0)
 

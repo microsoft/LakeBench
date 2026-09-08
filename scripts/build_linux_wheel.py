@@ -1,10 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = [
-#   "cibuildwheel==4.2.0",
-# ]
-# ///
-
 import argparse
 import hashlib
 import os
@@ -16,6 +9,7 @@ from pathlib import Path
 import tomllib
 
 BUILD_IDENTIFIER = "cp311-manylinux_x86_64"
+CIBUILDWHEEL_REQUIREMENT = "cibuildwheel==4.2.0"
 
 
 def _project_configuration(project_root: Path) -> dict:
@@ -105,8 +99,11 @@ def main() -> int:
         environment["CIBW_REPAIR_WHEEL_COMMAND_LINUX"] = ""
         subprocess.run(
             [
-                sys.executable,
-                "-m",
+                uv,
+                "tool",
+                "run",
+                "--from",
+                CIBUILDWHEEL_REQUIREMENT,
                 "cibuildwheel",
                 "--only",
                 BUILD_IDENTIFIER,
