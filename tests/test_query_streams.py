@@ -7,6 +7,22 @@ import pytest
 from lakebench.benchmarks._load_and_query import _LoadAndQuery
 from lakebench.benchmarks.tpcds import TPCDS
 from lakebench.benchmarks.tpch import TPCH
+from lakebench.engines.duckdb import DuckDB
+
+
+def _benchmark_with_queries(benchmark_class, query_list):
+    engine = MagicMock(spec=DuckDB)
+    engine.SUPPORTS_MOUNT_PATH = True
+    engine.version = "test"
+    engine.extended_engine_metadata = {}
+    engine.get_total_cores.return_value = 1
+    engine.get_compute_size.return_value = "test"
+    return benchmark_class(
+        engine=engine,
+        scenario_name="test",
+        query_list=query_list,
+        input_parquet_folder_uri="/tmp/data",
+    )
 
 
 def test_power_test_runs_queries_without_loading():
@@ -48,6 +64,16 @@ def test_query_streams_are_complete_permutations(benchmark_class, stream_count, 
     assert len(benchmark_class.QUERY_STREAMS) == stream_count
     assert all(len(stream) == query_count for stream in benchmark_class.QUERY_STREAMS)
     assert all(set(stream) == set(range(1, query_count + 1)) for stream in benchmark_class.QUERY_STREAMS)
+
+
+@pytest.mark.parametrize("benchmark_class", [TPCDS, TPCH])
+@pytest.mark.parametrize("query_list", [None, ["*"]])
+def test_full_query_shortcuts_default_to_stream_zero(benchmark_class, query_list):
+    benchmark = _benchmark_with_queries(benchmark_class, query_list)
+    query_plan = benchmark_class._query_plan_for_stream(0)
+
+    assert benchmark.query_list == [query_name for _, query_name in query_plan]
+    assert benchmark.query_progress == [progress for progress, _ in query_plan]
 
 
 def test_tpcds_power_test_uses_stream_zero_order():
