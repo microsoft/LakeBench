@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import re
 import shutil
@@ -212,7 +213,7 @@ class _TpcgenRsDataGenerator:
     def _calculate_optimal_parts(self, table_name: str) -> int:
         scaled_size_gib = self._estimated_table_size_gib(table_name)
         target_file_size_mb = self._target_file_size_mb(scaled_size_gib)
-        return max(round(scaled_size_gib * 1024 / target_file_size_mb), 1)
+        return max(math.ceil(scaled_size_gib * 1024 / target_file_size_mb), 1)
 
     def _estimated_table_size_gib(self, table_name: str) -> float:
         zstd_size_gib = self.SF1000_SIZE_GB_DICT[table_name] * (self.scale_factor / 1000)

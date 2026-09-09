@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 env:
-  TPCGEN_COMMIT: 4d77d576802a05705b9cdea65bae965736652c9e
+  TPCGEN_COMMIT: eed8a40b6d69b8ed6b5cce88eb3bb6fdcce76c60
 
 jobs:
   build:

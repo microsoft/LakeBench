@@ -182,10 +182,10 @@ To run any LakeBench benchmark, first do a one time generation of the data requi
     _The below are generation runtimes on a 64 v-core VM writing to OneLake. Scale factors below 1000 can easily be generated on a 2 v-core machine._
     | Scale Factor | TPC-H Duration (hh:mm:ss)| TPC-DS Duration (hh:mm:ss)|
     |:------------:|:------------------:|:------------------:|
-    | 1            | 00:00:20           | 00:00:28           |
-    | 10           | 00:00:34           | 00:01:10           |
-    | 100          | 00:01:26           | 00:02:22           |
-    | 1000         | 00:07:49           | 00:12:23           |
+    | 1            | 00:00:20           | 00:00:24           |
+    | 10           | 00:00:34           | 00:01:01           |
+    | 100          | 00:01:26           | 00:02:17           |
+    | 1000         | 00:07:49           | 00:10:30           |
 
 - **ClickBench** data is downloaded directly from the Clickhouse host site.
 

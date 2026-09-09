@@ -1,6 +1,7 @@
 import hashlib
 import inspect
 import json
+import stat
 import subprocess
 from pathlib import Path
 from unittest.mock import Mock
@@ -135,7 +136,7 @@ def test_tpch_snappy_uses_measured_compression(tmp_path, fake_executable):
 
     assert generator.compression_factors_by_table["lineitem"] == 1.866
     assert generator._estimated_table_size_gib("lineitem") == pytest.approx(1.924, rel=0.002)
-    assert generator.parts_by_table["lineitem"] == 15
+    assert generator.parts_by_table["lineitem"] == 16
     assert int(command[command.index("--row-group-bytes") + 1]) == round(64 * 1.866 * 1.05 * 1024 * 1024)
 
 
@@ -185,12 +186,12 @@ def test_automatic_parts_group_tables_by_target_size(monkeypatch, tmp_path, fake
     generator.cli.run = Mock(side_effect=create_outputs)
     generator.run()
 
-    assert generator.parts_by_table == {"reason": 1, "store_sales": 21}
+    assert generator.parts_by_table == {"reason": 1, "store_sales": 6}
     assert generator.cli.run.call_count == 2
     commands = [call.args[0] for call in generator.cli.run.call_args_list]
     assert {
         (command[command.index("--tables") + 1], command[command.index("--parts") + 1]) for command in commands
-    } == {("reason", "1"), ("store_sales", "21")}
+    } == {("reason", "1"), ("store_sales", "6")}
 
 
 def test_default_zstd_row_group_target_uses_per_table_compression(tmp_path, fake_executable):
@@ -203,14 +204,14 @@ def test_default_zstd_row_group_target_uses_per_table_compression(tmp_path, fake
 
     grouped = generator._group_tables_by_generation_settings()
 
-    assert set(grouped) == {(1, 1.019), (1, 5.447)}
+    assert set(grouped) == {(1, 1.026), (1, 1.344)}
     inventory_command = generator._build_command(tmp_path, ["inventory"], 1)
     store_sales_command = generator._build_command(tmp_path, ["store_sales"], 1)
     assert int(inventory_command[inventory_command.index("--row-group-bytes") + 1]) == round(
-        64 * 1.019 * 1.05 * 1024 * 1024
+        64 * 1.026 * 1.05 * 1024 * 1024
     )
     assert int(store_sales_command[store_sales_command.index("--row-group-bytes") + 1]) == round(
-        64 * 5.447 * 1.05 * 1024 * 1024
+        64 * 1.344 * 1.05 * 1024 * 1024
     )
 
 
@@ -225,11 +226,11 @@ def test_snappy_uses_measured_compression_for_row_groups_and_parts(tmp_path, fak
 
     command = generator._build_command(tmp_path, ["store_sales"], generator.parts_by_table["store_sales"])
 
-    assert generator.compression_factors_by_table["store_sales"] == 3.005
-    assert generator._estimated_table_size_gib("store_sales") == pytest.approx(1.754, rel=0.002)
-    assert generator.parts_by_table["store_sales"] == 14
+    assert generator.compression_factors_by_table["store_sales"] == 1.12
+    assert generator._estimated_table_size_gib("store_sales") == pytest.approx(1.140, rel=0.002)
+    assert generator.parts_by_table["store_sales"] == 10
     assert generator._output_file_name("store_sales", 1) == "store_sales-00001.snappy.parquet"
-    assert int(command[command.index("--row-group-bytes") + 1]) == round(64 * 3.005 * 1.05 * 1024 * 1024)
+    assert int(command[command.index("--row-group-bytes") + 1]) == round(64 * 1.12 * 1.05 * 1024 * 1024)
 
 
 def test_all_zstd_levels_use_zstd1_measured_compression(tmp_path, fake_executable):
@@ -243,10 +244,10 @@ def test_all_zstd_levels_use_zstd1_measured_compression(tmp_path, fake_executabl
 
     command = generator._build_command(tmp_path, ["store_sales"], generator.parts_by_table["store_sales"])
 
-    assert generator.compression_factors_by_table["store_sales"] == 5.447
+    assert generator.compression_factors_by_table["store_sales"] == 1.344
     assert generator.parts_by_table["store_sales"] == 8
     assert command[command.index("--compression") + 1] == "ZSTD(9)"
-    assert int(command[command.index("--row-group-bytes") + 1]) == round(64 * 5.447 * 1.05 * 1024 * 1024)
+    assert int(command[command.index("--row-group-bytes") + 1]) == round(64 * 1.344 * 1.05 * 1024 * 1024)
 
 
 @pytest.mark.parametrize(
@@ -274,16 +275,19 @@ def test_target_file_size_thresholds(tmp_path, fake_executable, scaled_size_gib,
     ("table_name", "scale_factor", "expected_parts"),
     [
         ("catalog_sales", 3, 2),
-        ("catalog_sales", 10, 6),
-        ("store_sales", 3, 2),
+        ("catalog_sales", 10, 7),
+        ("store_sales", 3, 3),
         ("store_sales", 10, 8),
         ("web_sales", 10, 3),
         ("web_sales", 20, 6),
-        ("item", 1000, 5),
-        ("customer_demographics", 1000, 2),
+        ("item", 1000, 1),
+        ("customer", 1000, 4),
+        ("customer_address", 1000, 1),
+        ("customer_demographics", 1000, 1),
+        ("inventory", 1000, 20),
     ],
 )
-def test_automatic_parts_scale_directly_from_sf1000(
+def test_automatic_parts_use_tpcds_row_count_scaling(
     tmp_path,
     fake_executable,
     table_name,
@@ -302,13 +306,13 @@ def test_automatic_parts_scale_directly_from_sf1000(
 @pytest.mark.parametrize(
     ("table_name", "scale_factor", "expected_size_gib"),
     [
-        ("inventory", 10, 0.412427),
-        ("inventory", 1000, 41.242681),
-        ("customer", 1000, 1.855254),
-        ("customer_demographics", 1000, 0.213324),
+        ("inventory", 10, 0.408816),
+        ("inventory", 1000, 2.404798),
+        ("customer", 1000, 0.469082),
+        ("customer_demographics", 1000, 0.00533869),
     ],
 )
-def test_table_size_scales_directly_from_sf1000(
+def test_table_size_uses_tpcds_row_count_scaling(
     tmp_path,
     fake_executable,
     table_name,
@@ -322,6 +326,22 @@ def test_table_size_scales_directly_from_sf1000(
     )
 
     assert generator._estimated_table_size_gib(table_name) == pytest.approx(expected_size_gib, rel=1e-5)
+
+
+@pytest.mark.parametrize(
+    ("table_name", "scale_factor", "expected_rows"),
+    [
+        ("customer", 10, 500000),
+        ("customer", 1000, 12000000),
+        ("item", 1000, 300000),
+        ("warehouse", 1000, 20),
+        ("inventory", 1, 11745000),
+        ("inventory", 10, 133110000),
+        ("inventory", 1000, 783000000),
+    ],
+)
+def test_tpcds_expected_row_counts_match_scaling_model(table_name, scale_factor, expected_rows):
+    assert _TPCDSRsDataGenerator._expected_row_count(table_name, scale_factor) == expected_rows
 
 
 def test_row_group_target_is_adjusted_for_compression(tmp_path, fake_executable):
@@ -471,6 +491,15 @@ def test_packaged_binary_checksum_validation(tmp_path):
         TpcgenCli._validate_packaged_binary(binary)
 
 
+def test_packaged_binary_is_made_executable():
+    binary = Mock()
+    binary.stat.return_value.st_mode = stat.S_IRUSR | stat.S_IWUSR
+
+    TpcgenCli._ensure_executable(binary)
+
+    binary.chmod.assert_called_once_with(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
 def test_vendored_binary_checksums_match_provenance():
     bundle_root = Path(__file__).parents[1] / "native" / "tpcgen"
     for platform_directory, binary_name in (
@@ -480,7 +509,7 @@ def test_vendored_binary_checksums_match_provenance():
         binary_path = bundle_root / platform_directory / binary_name
         manifest = TpcgenCli._validate_packaged_binary(binary_path)
 
-        assert manifest["commit"] == "4d77d576802a05705b9cdea65bae965736652c9e"
+        assert manifest["commit"] == "eed8a40b6d69b8ed6b5cce88eb3bb6fdcce76c60"
         assert manifest["binary_name"] == binary_name
 
 

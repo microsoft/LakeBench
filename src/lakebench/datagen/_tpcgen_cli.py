@@ -21,12 +21,13 @@ class TpcgenCli:
         packaged_path = Path(__file__).parent / "_bin" / binary_name
         if packaged_path.is_file():
             manifest = TpcgenCli._validate_packaged_binary(packaged_path)
+            TpcgenCli._ensure_executable(packaged_path)
             return str(packaged_path), manifest
 
         source_tree_path = TpcgenCli._source_tree_binary(binary_name)
         if source_tree_path is not None:
             manifest = TpcgenCli._validate_packaged_binary(source_tree_path)
-            source_tree_path.chmod(source_tree_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            TpcgenCli._ensure_executable(source_tree_path)
             return str(source_tree_path), manifest
 
         machine = platform.machine().lower()
@@ -79,6 +80,10 @@ class TpcgenCli:
             for chunk in iter(lambda: binary_file.read(1024 * 1024), b""):
                 digest.update(chunk)
         return digest.hexdigest()
+
+    @staticmethod
+    def _ensure_executable(binary_path: Path) -> None:
+        binary_path.chmod(binary_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     def run(self, args: List[str]) -> subprocess.CompletedProcess:
         command = [self.executable] + args

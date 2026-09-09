@@ -1,14 +1,13 @@
 import argparse
 import hashlib
 import json
-import os
 import stat
 import subprocess
 import zipfile
 from pathlib import Path
 
 UPSTREAM_REPOSITORY = "https://github.com/mwc360/tpcgen-rs"
-UPSTREAM_COMMIT = "4d77d576802a05705b9cdea65bae965736652c9e"
+UPSTREAM_COMMIT = "eed8a40b6d69b8ed6b5cce88eb3bb6fdcce76c60"
 UPSTREAM_LOCK_COMMIT = "40cedfdc6ec7f47080660808897752436d662d0c"
 
 
@@ -86,7 +85,7 @@ def main() -> None:
         "upstream_wheel": wheel_path.name,
     }
     provenance_path = args.output_directory / "provenance.json"
-    provenance_path.write_text(json.dumps(provenance, indent=2) + os.linesep, encoding="utf-8")
+    provenance_path.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
 
     print(f"binary={binary_path.resolve()}")
     print(f"provenance={provenance_path.resolve()}")

@@ -36,13 +36,19 @@ def main() -> None:
         ).run()
 
         customer_schema = pq.read_schema(schema_output / "customer" / "customer-00001.zstd.parquet")
+        if customer_schema.field("c_customer_sk").type != pa.int32():
+            raise RuntimeError("customer.c_customer_sk does not have the expected integer type.")
         if customer_schema.field("c_last_review_date_sk").type != pa.int32():
             raise RuntimeError("customer.c_last_review_date_sk does not have the expected integer type.")
 
         store_sales_schema = pq.read_schema(schema_output / "store_sales" / "store_sales-00001.zstd.parquet")
+        if store_sales_schema.field("ss_sold_date_sk").type != pa.int32():
+            raise RuntimeError("store_sales.ss_sold_date_sk does not have the expected integer type.")
+        if store_sales_schema.field("ss_ticket_number").type != pa.int64():
+            raise RuntimeError("store_sales.ss_ticket_number does not have the expected long integer type.")
         sales_price_type = store_sales_schema.field("ss_sales_price").type
-        if not pa.types.is_decimal(sales_price_type) or sales_price_type.scale != 2:
-            raise RuntimeError("store_sales.ss_sales_price does not have the expected decimal scale.")
+        if sales_price_type != pa.decimal128(7, 2):
+            raise RuntimeError("store_sales.ss_sales_price does not have the expected decimal type.")
 
         reason_rows = pq.ParquetFile(schema_output / "reason" / "reason-00001.zstd.parquet").metadata.num_rows
         if reason_rows != 75:

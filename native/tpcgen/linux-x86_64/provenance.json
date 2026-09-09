@@ -1,12 +1,12 @@
 {
   "repository": "https://github.com/mwc360/tpcgen-rs",
-  "commit": "4d77d576802a05705b9cdea65bae965736652c9e",
+  "commit": "eed8a40b6d69b8ed6b5cce88eb3bb6fdcce76c60",
   "cargo_lock_commit": "40cedfdc6ec7f47080660808897752436d662d0c",
   "source_branch": "users/mcole/align-tpcds-schema-and-parts",
   "pull_request": "https://github.com/datafusion-contrib/tpcgen-rs/pull/406",
   "cli_version": "tpcgen-cli 0.1.0",
   "platform": "linux",
   "binary_name": "tpcgen-cli",
-  "binary_sha256": "fa7c1f2809171b7d4d2c36184d92ffeea290e7f71f2683e257d014094a4135fb",
+  "binary_sha256": "9f4f80b691e59f1b4f0533dcd86b9cacd5f69b8ec6c1022c07415168f9e8348e",
   "upstream_wheel": "tpcgen_cli-0.1.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
 }
