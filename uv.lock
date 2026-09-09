@@ -1268,7 +1268,7 @@ requires-dist = [
     { name = "pyarrow", marker = "python_full_version >= '3.10' and extra == 'duckdb'", specifier = ">=16.0.0" },
     { name = "pyarrow", marker = "python_full_version >= '3.10' and extra == 'polars'", specifier = ">=16.0.0" },
     { name = "pyarrow", marker = "python_full_version >= '3.10' and extra == 'sail'", specifier = ">=16.0.0" },
-    { name = "pysail", marker = "python_full_version >= '3.10' and extra == 'sail'", specifier = ">=0.6.6" },
+    { name = "pysail", marker = "python_full_version >= '3.10' and extra == 'sail'", specifier = ">=0.7.1" },
     { name = "pyspark", marker = "python_full_version >= '3.9' and extra == 'spark'", specifier = ">=3.5.0,<4.0.0" },
     { name = "pyspark", extras = ["connect"], marker = "python_full_version >= '3.10' and extra == 'sail'", specifier = ">=4.0.0" },
     { name = "sparkmeasure", marker = "python_full_version >= '3.9' and extra == 'sparkmeasure'", specifier = "==0.28.0" },
@@ -2216,15 +2216,15 @@ wheels = [
 
 [[package]]
 name = "pysail"
-version = "0.7.0"
+version = "0.7.1"
 source = { registry = "https://packagefeedproxy.microsoft.io/pypi/simple" }
-sdist = { url = "https://ms-feed-25.pkgs.visualstudio.com/6f084628-a36d-42cb-934d-057357e379dc/_packaging/49d7402f-07bb-4b18-a9ce-086e6e98a554/pypi/download/pysail/0.7/pysail-0.7.0.tar.gz", hash = "sha256:93551f92f832c0f90b7a913f90103fd4333c06075c0e6550d52744d78d00d7ff" }
+sdist = { url = "https://ms-feed-25.pkgs.visualstudio.com/6f084628-a36d-42cb-934d-057357e379dc/_packaging/49d7402f-07bb-4b18-a9ce-086e6e98a554/pypi/download/pysail/0.7.1/pysail-0.7.1.tar.gz", hash = "sha256:7d7ad335e1c8542c0df98b54700751bfa10b51a5223f0831825b96522df4ac26" }
 wheels = [
-    { url = "https://ms-feed-25.pkgs.visualstudio.com/6f084628-a36d-42cb-934d-057357e379dc/_packaging/49d7402f-07bb-4b18-a9ce-086e6e98a554/pypi/download/pysail/0.7/pysail-0.7.0-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:6e9e7b4b693cee9e04a21e86b714834738656517f088945f41623abe98b18420" },
-    { url = "https://ms-feed-25.pkgs.visualstudio.com/6f084628-a36d-42cb-934d-057357e379dc/_packaging/49d7402f-07bb-4b18-a9ce-086e6e98a554/pypi/download/pysail/0.7/pysail-0.7.0-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:b9a6912147f181cec21e272056a0a0669ada7311195441982a7bf89d006a4a22" },
-    { url = "https://ms-feed-25.pkgs.visualstudio.com/6f084628-a36d-42cb-934d-057357e379dc/_packaging/49d7402f-07bb-4b18-a9ce-086e6e98a554/pypi/download/pysail/0.7/pysail-0.7.0-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b952cf718d2fbc670cdcb7a1662dd79f35f217be8badf7e4d7138a32bb475bec" },
-    { url = "https://ms-feed-25.pkgs.visualstudio.com/6f084628-a36d-42cb-934d-057357e379dc/_packaging/49d7402f-07bb-4b18-a9ce-086e6e98a554/pypi/download/pysail/0.7/pysail-0.7.0-cp38-abi3-manylinux_2_24_aarch64.whl", hash = "sha256:7bf65e4741bee6f4b4c75e902f8662a7d867b4a5e493b28b8e22988b28e2efad" },
-    { url = "https://ms-feed-25.pkgs.visualstudio.com/6f084628-a36d-42cb-934d-057357e379dc/_packaging/49d7402f-07bb-4b18-a9ce-086e6e98a554/pypi/download/pysail/0.7/pysail-0.7.0-cp38-abi3-win_amd64.whl", hash = "sha256:e76ff2c945d1d14ee6eadad9f3429dbdcd137a2bf267b98fc49c666216562a8f" },
+    { url = "https://ms-feed-25.pkgs.visualstudio.com/6f084628-a36d-42cb-934d-057357e379dc/_packaging/49d7402f-07bb-4b18-a9ce-086e6e98a554/pypi/download/pysail/0.7.1/pysail-0.7.1-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:2117edb62a08b11321d7442b2b6f55cc785e064a8f89ed72074122ee47442eb6" },
+    { url = "https://ms-feed-25.pkgs.visualstudio.com/6f084628-a36d-42cb-934d-057357e379dc/_packaging/49d7402f-07bb-4b18-a9ce-086e6e98a554/pypi/download/pysail/0.7.1/pysail-0.7.1-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:ab265f8f9e10c44d5c533a071cee0938dc42b291341473b8441b16c727d52917" },
+    { url = "https://ms-feed-25.pkgs.visualstudio.com/6f084628-a36d-42cb-934d-057357e379dc/_packaging/49d7402f-07bb-4b18-a9ce-086e6e98a554/pypi/download/pysail/0.7.1/pysail-0.7.1-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:360410b168608effc5ac80af478861cc27f6dc17172c11b3200f346dd448d7c9" },
+    { url = "https://ms-feed-25.pkgs.visualstudio.com/6f084628-a36d-42cb-934d-057357e379dc/_packaging/49d7402f-07bb-4b18-a9ce-086e6e98a554/pypi/download/pysail/0.7.1/pysail-0.7.1-cp38-abi3-manylinux_2_24_aarch64.whl", hash = "sha256:61ffe5d970b2b273c326df1579c7bf262dc4e148013d6d0c592fb7c097ff9ae9" },
+    { url = "https://ms-feed-25.pkgs.visualstudio.com/6f084628-a36d-42cb-934d-057357e379dc/_packaging/49d7402f-07bb-4b18-a9ce-086e6e98a554/pypi/download/pysail/0.7.1/pysail-0.7.1-cp38-abi3-win_amd64.whl", hash = "sha256:c59a352aa079280f766cf4881940b2edb1621e89477a05448405e10d6bd254fa" },
 ]
 
 [[package]]
