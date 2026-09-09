@@ -164,6 +164,7 @@ class _LoadAndQuery(BaseBenchmark):
     ]
     DDL_FILE_NAME = ""
     DDL_VARIANT_REGISTRY: Dict[str, str] = {}
+    COLUMN_NAME_MAPPING_REGISTRY: Dict[str, Dict[str, str]] = {}
     ANALYZE_COLUMN_REGISTRY: Dict[str, List[str]] = {}
     VERSION = ""
 
@@ -413,6 +414,7 @@ class _LoadAndQuery(BaseBenchmark):
                         table_name=table_name,
                         table_is_precreated=True,
                         context_decorator=tc.context_decorator,
+                        column_name_mapping=self.COLUMN_NAME_MAPPING_REGISTRY.get(table_name),
                     )
 
         if self.optimize:

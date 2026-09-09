@@ -82,6 +82,13 @@ class TPCDS(_LoadAndQuery):
         "web_sales",
         "web_site",
     ]
+    COLUMN_NAME_MAPPING_REGISTRY = {
+        "catalog_returns": {"cr_return_amount_inc_tax": "cr_return_amt_inc_tax"},
+        "income_band": {"ib_income_band_id": "ib_income_band_sk"},
+        "reason": {"r_reason_description": "r_reason_desc"},
+        "store": {"s_tax_precentage": "s_tax_percentage"},
+        "web_returns": {"wr_store_credit": "wr_account_credit"},
+    }
     QUERY_REGISTRY = [
         "q1",
         "q2",

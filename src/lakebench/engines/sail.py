@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import posixpath
 from importlib.metadata import version
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from .base import BaseEngine
 from .delta_rs import DeltaRs
@@ -82,8 +82,13 @@ class Sail(BaseEngine):
         table_name: str,
         table_is_precreated: bool = False,
         context_decorator: Optional[str] = None,
+        column_name_mapping: Optional[Mapping[str, str]] = None,
     ):
-        self.spark.read.parquet(parquet_folder_uri).write.format("delta").mode("overwrite").save(
+        df = self.spark.read.parquet(parquet_folder_uri)
+        resolved_mapping = self._resolve_column_name_mapping(table_name, df.columns, column_name_mapping)
+        if resolved_mapping:
+            df = df.withColumnsRenamed(resolved_mapping)
+        df.write.format("delta").mode("overwrite").save(
             posixpath.join(self.schema_or_working_directory_uri, table_name)
         )
 

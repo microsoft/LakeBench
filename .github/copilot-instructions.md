@@ -24,8 +24,9 @@ src/lakebench/
 │   └── clickbench/              # ClickBench: 43 queries on clickstream data
 │
 ├── datagen/
-│   ├── tpch.py                  # TPCHDataGenerator (uses tpchgen-rs, ~10x faster than alternatives)
-│   ├── tpcds.py                 # TPCDSDataGenerator (wraps DuckDB TPC-DS extension)
+│   ├── _tpcgen_rs.py            # Shared bundled tpcgen-cli generation, sizing, and output normalization
+│   ├── tpch.py                  # TPCHDataGenerator (bundled tpcgen-cli)
+│   ├── tpcds.py                 # TPCDSDataGenerator (bundled tpcgen-cli; DuckDB fallback)
 │   └── clickbench.py            # Downloads dataset from ClickHouse host
 │
 ├── engines/
@@ -135,8 +136,9 @@ Install only what you need:
 | `duckdb` | `duckdb`, `deltalake`, `pyarrow` |
 | `polars` | `polars`, `deltalake`, `pyarrow` |
 | `daft` | `daft`, `deltalake`, `pyarrow` |
-| `tpcds_datagen` | `duckdb`, `pyarrow` |
-| `tpch_datagen` | `tpchgen-cli` |
+| `tpcds_datagen` | Compatibility extra; generator is bundled in supported platform wheels |
+| `tpcds_duckdb_datagen` | Legacy DuckDB TPC-DS generator |
+| `tpch_datagen` | Compatibility extra; generator is bundled in supported platform wheels |
 | `sparkmeasure` | `sparkmeasure` |
 | `sail` | `pysail`, `pyspark[connect]`, `deltalake`, `pyarrow` |
 

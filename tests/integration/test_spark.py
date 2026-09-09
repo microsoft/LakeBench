@@ -38,6 +38,7 @@ def _spark_session_lifecycle(tmp_path_factory):
         .config("spark.driver.host", "localhost")
         .config("spark.driver.bindAddress", "localhost")
         .config("spark.ui.enabled", "false")
+        .config("spark.sql.autoBroadcastJoinThreshold", "-1")
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
         .config("spark.jars.packages", "io.delta:delta-spark_2.12:3.2.0")
@@ -78,7 +79,7 @@ def _run(engine_or_exc, BenchmarkCls, input_dir, run_mode, benchmark_name, **kwa
             UserWarning,
             stacklevel=2,
         )
-        return [], None
+        return [], engine_or_exc
     return run_benchmark(engine_or_exc, BenchmarkCls, input_dir, run_mode, **kwargs)
 
 

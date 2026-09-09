@@ -4,7 +4,7 @@ import os
 from abc import ABC
 from decimal import Decimal
 from importlib.metadata import version
-from typing import Any, Optional, Sequence
+from typing import Any, Collection, Mapping, Optional, Sequence
 from urllib.parse import urlparse
 
 import fsspec
@@ -231,6 +231,39 @@ class BaseEngine(ABC):
         By default, this is a no-op and is only overridden by subclasses as needed.
         """
         pass
+
+    @staticmethod
+    def _resolve_column_name_mapping(
+        table_name: str,
+        columns: Collection[str],
+        column_name_mapping: Optional[Mapping[str, str]] = None,
+    ) -> dict[str, str]:
+        """Return legacy columns that must be renamed to canonical names."""
+        if not column_name_mapping:
+            return {}
+
+        observed_columns = set(columns)
+        resolved_mapping = {}
+        for legacy_name, canonical_name in column_name_mapping.items():
+            has_legacy = legacy_name in observed_columns
+            has_canonical = canonical_name in observed_columns
+            if has_legacy and has_canonical:
+                raise ValueError(
+                    f"Ambiguous schema for table '{table_name}': both legacy column "
+                    f"'{legacy_name}' and canonical column '{canonical_name}' are present. "
+                    "Remove one of the duplicate columns before loading."
+                )
+            if not has_legacy and not has_canonical:
+                raise ValueError(
+                    f"Invalid schema for table '{table_name}': expected legacy column "
+                    f"'{legacy_name}' or canonical column '{canonical_name}', but neither is present. "
+                    f"Rename the source field to '{canonical_name}' or the recognized legacy alias "
+                    f"'{legacy_name}'."
+                )
+            if has_legacy:
+                resolved_mapping[legacy_name] = canonical_name
+
+        return resolved_mapping
 
     def analyze_table(self, table_name: str, columns: Optional[Sequence[str]] = None):
         """

@@ -48,7 +48,8 @@ class _TPCDataGenerator:
 
         if importlib.util.find_spec("duckdb") is None:
             raise ImportError(
-                "DuckDB is used for data generation but is not installed. Install using `%pip install lakebench[duckdb]` or `%pip install lakebench[datagen]`"
+                "The legacy DuckDB TPC-DS generator is not installed. "
+                "On Python 3.10+, install using `%pip install lakebench[tpcds_duckdb_datagen]`."
             )
 
     def run(self) -> None:

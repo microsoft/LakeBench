@@ -20,14 +20,15 @@ reports/coverage/<engine>.md  whenever report_and_assert is called at least
 once.  Run any integration test to refresh the reports.
 """
 
+from __future__ import annotations
+
 import datetime
 import pathlib
 import warnings
 
 import pytest
 
-pytest.importorskip("duckdb", reason="requires lakebench[tpcds_datagen] extra")
-pytest.importorskip("pyarrow", reason="requires lakebench[tpcds_datagen] extra")
+pytest.importorskip("pyarrow", reason="integration tests require LakeBench's core pyarrow dependency")
 
 # ---------------------------------------------------------------------------
 # Session-level result collector (populated by report_and_assert)
@@ -42,7 +43,7 @@ _RESULTS: list[dict] = []
 
 def report_and_assert(results, benchmark_name: str, engine_label: str, run_exception=None, min_pass_rate: float = 0.0):
     """Print a run summary, emit warnings on partial failures, and assert
-    pass rate meets *min_pass_rate*.
+    all table loads succeed and query/task pass rate meets *min_pass_rate*.
 
     min_pass_rate=0.0 (default) — at least one step must succeed (⚠️ engines).
     min_pass_rate=1.0           — every step must succeed        (✅ engines).
@@ -67,7 +68,7 @@ def report_and_assert(results, benchmark_name: str, engine_label: str, run_excep
             assert len(passed) > 0, f"{benchmark_name} [{engine_label}]: ALL {total} {unit} failed."
 
     # ELTBench: no Load/Query phases — treat every result as a "task"
-    if not load_results and not query_results:
+    if not load_results and not query_results and (results or benchmark_name == "ELTBench"):
         task_results = results
         passed = [r for r in task_results if r["success"]]
         failed = [r for r in task_results if not r["success"]]
@@ -81,23 +82,6 @@ def report_and_assert(results, benchmark_name: str, engine_label: str, run_excep
             print(f"  [WARN] raised before completion: {type(run_exception).__name__}: {str(run_exception)[:200]}")
         print(f"{'=' * 60}")
 
-        if len(task_results) == 0 and run_exception is not None:
-            warnings.warn(
-                f"{benchmark_name} [{engine_label}]: engine crashed before any tasks ran: "
-                f"{type(run_exception).__name__}: {str(run_exception)[:200]}",
-                UserWarning,
-                stacklevel=2,
-            )
-            return
-
-        if failed:
-            warnings.warn(
-                f"{benchmark_name} [{engine_label}]: {len(failed)} of {len(task_results)} "
-                f"tasks failed: {[r['test_item'] for r in failed]}",
-                UserWarning,
-                stacklevel=2,
-            )
-        _assert_rate(passed, len(task_results), "tasks")
         _RESULTS.append(
             {
                 "benchmark": benchmark_name,
@@ -110,6 +94,21 @@ def report_and_assert(results, benchmark_name: str, engine_label: str, run_excep
                 "timestamp": datetime.datetime.utcnow().isoformat(),
             }
         )
+
+        if len(task_results) == 0 and run_exception is not None:
+            pytest.fail(
+                f"{benchmark_name} [{engine_label}]: engine crashed before any tasks ran: "
+                f"{type(run_exception).__name__}: {str(run_exception)[:200]}"
+            )
+
+        if failed:
+            warnings.warn(
+                f"{benchmark_name} [{engine_label}]: {len(failed)} of {len(task_results)} "
+                f"tasks failed: {[r['test_item'] for r in failed]}",
+                UserWarning,
+                stacklevel=2,
+            )
+        _assert_rate(passed, len(task_results), "tasks")
         return
 
     # Load-and-query benchmarks (TPC-H, TPC-DS, ClickBench)
@@ -130,29 +129,6 @@ def report_and_assert(results, benchmark_name: str, engine_label: str, run_excep
         print(f"  [WARN] raised before completion: {type(run_exception).__name__}: {str(run_exception)[:200]}")
     print(f"{'=' * 60}")
 
-    if lf and len(lf) == len(load_results) and len(load_results) > 0:
-        pytest.fail(
-            f"{benchmark_name} [{engine_label}]: ALL {len(load_results)} tables failed to load. "
-            f"First error: {lf[0]['error_message'][:200]}"
-        )
-
-    if len(query_results) == 0 and run_exception is not None:
-        warnings.warn(
-            f"{benchmark_name} [{engine_label}]: engine crashed before any queries ran: "
-            f"{type(run_exception).__name__}: {str(run_exception)[:200]}",
-            UserWarning,
-            stacklevel=2,
-        )
-        return
-
-    if failed:
-        warnings.warn(
-            f"{benchmark_name} [{engine_label}]: {len(failed)} of {len(query_results)} "
-            f"queries failed: {[r['test_item'] for r in failed]}",
-            UserWarning,
-            stacklevel=2,
-        )
-    _assert_rate(passed, len(query_results), "queries")
     _RESULTS.append(
         {
             "benchmark": benchmark_name,
@@ -166,6 +142,27 @@ def report_and_assert(results, benchmark_name: str, engine_label: str, run_excep
             "timestamp": datetime.datetime.utcnow().isoformat(),
         }
     )
+
+    if lf:
+        pytest.fail(
+            f"{benchmark_name} [{engine_label}]: {len(lf)} of {len(load_results)} tables failed to load. "
+            f"First error: {lf[0]['error_message'][:200]}"
+        )
+
+    if len(query_results) == 0 and run_exception is not None:
+        pytest.fail(
+            f"{benchmark_name} [{engine_label}]: engine crashed before any queries ran: "
+            f"{type(run_exception).__name__}: {str(run_exception)[:200]}"
+        )
+
+    if failed:
+        warnings.warn(
+            f"{benchmark_name} [{engine_label}]: {len(failed)} of {len(query_results)} "
+            f"queries failed: {[r['test_item'] for r in failed]}",
+            UserWarning,
+            stacklevel=2,
+        )
+    _assert_rate(passed, len(query_results), "queries")
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +254,20 @@ def _render_engine_report(engine_label: str, records: list) -> str:
         "---",
         "",
     ]
+    has_utf8view_failure = any(
+        "Utf8View" in item.get("error", "")
+        for record in records
+        for key in ("failed", "load_failed")
+        for item in record.get(key, [])
+    )
+    if _engine_slug(engine_label) == "daft" and has_utf8view_failure:
+        lines += [
+            "> **Compatibility note:** Daft 0.7.21, used by this LakeBench test lane, cannot read Parquet files "
+            "whose embedded Arrow schema uses `Utf8View`. The latest PyPI release tested, Daft 0.7.24, fails with "
+            "the same unsupported-type error. The bundled TPC generator intentionally retains this Arrow type, "
+            "so affected TPC and ELTBench loads are reported as unsupported rather than rewritten during generation.",
+            "",
+        ]
     for r in ordered:
         bm = r["benchmark"]
         passed = r["passed"]
