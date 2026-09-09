@@ -40,7 +40,6 @@ class TPCDSDataGenerator:
         ZSTD levels use per-table factors measured with ``ZSTD(1)`` and
         ``SNAPPY`` uses its own measured factors; other compressed codecs
         require an explicit value.
-
     Methods
     -------
     run()

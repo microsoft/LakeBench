@@ -28,6 +28,8 @@ class _TpcgenRsDataGenerator:
         (5120, 512),
         (10240, 1024),
     ]
+    MINIMUM_FILE_SIZE_RATIO = 0.5
+    MINIMUM_FILE_SIZE_ESTIMATION_HEADROOM = 1.10
     ROW_GROUP_ESTIMATION_HEADROOM = 1.05
     CLOUD_SCHEMES = {"s3", "gs", "gcs", "abfs", "abfss", "adl", "wasb", "wasbs"}
     COMPRESSION_PATTERN = re.compile(
@@ -212,6 +214,13 @@ class _TpcgenRsDataGenerator:
 
     def _calculate_optimal_parts(self, table_name: str) -> int:
         scaled_size_gib = self._estimated_table_size_gib(table_name)
+        if scaled_size_gib < self.TARGET_FILE_SIZE_MAP[0][0]:
+            minimum_file_size_mb = (
+                self.target_row_group_size_mb
+                * self.MINIMUM_FILE_SIZE_RATIO
+                * self.MINIMUM_FILE_SIZE_ESTIMATION_HEADROOM
+            )
+            return max(math.floor(scaled_size_gib * 1024 / minimum_file_size_mb), 1)
         target_file_size_mb = self._target_file_size_mb(scaled_size_gib)
         return max(math.ceil(scaled_size_gib * 1024 / target_file_size_mb), 1)
 

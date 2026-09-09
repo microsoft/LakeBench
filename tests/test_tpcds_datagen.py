@@ -56,13 +56,13 @@ def test_rust_generator_builds_automatic_multipart_command_and_outputs(tmp_path,
     args = generator.cli.run.call_args.args[0]
     assert args[:2] == ["tpcds", "parquet"]
     assert args[args.index("--tables") + 1] == "store_sales"
-    assert args[args.index("--parts") + 1] == "8"
+    assert args[args.index("--parts") + 1] == "13"
     assert args[args.index("--compat") + 1] == "c"
     assert args[args.index("--num-threads") + 1] == "1"
     assert Path(args[args.index("--output-dir") + 1]) == output_dir.resolve()
     assert "--no-progress" in args
     assert sorted(path.name for path in (output_dir / "store_sales").glob("*.parquet")) == [
-        f"store_sales-{part_number:05d}.zstd.parquet" for part_number in range(1, 9)
+        f"store_sales-{part_number:05d}.zstd.parquet" for part_number in range(1, 14)
     ]
     assert not list(output_dir.rglob("*.json"))
 
@@ -115,11 +115,11 @@ def test_tpch_uses_unified_cli_and_normalizes_outputs(tmp_path, fake_executable)
     args = generator.cli.run.call_args.args[0]
     assert args[:2] == ["tpch", "parquet"]
     assert args[args.index("--tables") + 1] == "lineitem"
-    assert args[args.index("--parts") + 1] == "12"
+    assert args[args.index("--parts") + 1] == "21"
     assert "--compat" not in args
     assert args[args.index("--num-threads") + 1] == "1"
     assert sorted(path.name for path in (output_dir / "lineitem").glob("*.parquet")) == [
-        f"lineitem-{part_number:05d}.zstd.parquet" for part_number in range(1, 13)
+        f"lineitem-{part_number:05d}.zstd.parquet" for part_number in range(1, 22)
     ]
 
 
@@ -136,7 +136,7 @@ def test_tpch_snappy_uses_measured_compression(tmp_path, fake_executable):
 
     assert generator.compression_factors_by_table["lineitem"] == 1.866
     assert generator._estimated_table_size_gib("lineitem") == pytest.approx(1.924, rel=0.002)
-    assert generator.parts_by_table["lineitem"] == 16
+    assert generator.parts_by_table["lineitem"] == 56
     assert int(command[command.index("--row-group-bytes") + 1]) == round(64 * 1.866 * 1.05 * 1024 * 1024)
 
 
@@ -186,12 +186,12 @@ def test_automatic_parts_group_tables_by_target_size(monkeypatch, tmp_path, fake
     generator.cli.run = Mock(side_effect=create_outputs)
     generator.run()
 
-    assert generator.parts_by_table == {"reason": 1, "store_sales": 6}
+    assert generator.parts_by_table == {"reason": 1, "store_sales": 9}
     assert generator.cli.run.call_count == 2
     commands = [call.args[0] for call in generator.cli.run.call_args_list]
     assert {
         (command[command.index("--tables") + 1], command[command.index("--parts") + 1]) for command in commands
-    } == {("reason", "1"), ("store_sales", "6")}
+    } == {("reason", "1"), ("store_sales", "9")}
 
 
 def test_default_zstd_row_group_target_uses_per_table_compression(tmp_path, fake_executable):
@@ -204,7 +204,7 @@ def test_default_zstd_row_group_target_uses_per_table_compression(tmp_path, fake
 
     grouped = generator._group_tables_by_generation_settings()
 
-    assert set(grouped) == {(1, 1.026), (1, 1.344)}
+    assert set(grouped) == {(1, 1.026), (2, 1.344)}
     inventory_command = generator._build_command(tmp_path, ["inventory"], 1)
     store_sales_command = generator._build_command(tmp_path, ["store_sales"], 1)
     assert int(inventory_command[inventory_command.index("--row-group-bytes") + 1]) == round(
@@ -228,7 +228,7 @@ def test_snappy_uses_measured_compression_for_row_groups_and_parts(tmp_path, fak
 
     assert generator.compression_factors_by_table["store_sales"] == 1.12
     assert generator._estimated_table_size_gib("store_sales") == pytest.approx(1.140, rel=0.002)
-    assert generator.parts_by_table["store_sales"] == 10
+    assert generator.parts_by_table["store_sales"] == 33
     assert generator._output_file_name("store_sales", 1) == "store_sales-00001.snappy.parquet"
     assert int(command[command.index("--row-group-bytes") + 1]) == round(64 * 1.12 * 1.05 * 1024 * 1024)
 
@@ -245,7 +245,7 @@ def test_all_zstd_levels_use_zstd1_measured_compression(tmp_path, fake_executabl
     command = generator._build_command(tmp_path, ["store_sales"], generator.parts_by_table["store_sales"])
 
     assert generator.compression_factors_by_table["store_sales"] == 1.344
-    assert generator.parts_by_table["store_sales"] == 8
+    assert generator.parts_by_table["store_sales"] == 27
     assert command[command.index("--compression") + 1] == "ZSTD(9)"
     assert int(command[command.index("--row-group-bytes") + 1]) == round(64 * 1.344 * 1.05 * 1024 * 1024)
 
@@ -274,17 +274,17 @@ def test_target_file_size_thresholds(tmp_path, fake_executable, scaled_size_gib,
 @pytest.mark.parametrize(
     ("table_name", "scale_factor", "expected_parts"),
     [
-        ("catalog_sales", 3, 2),
-        ("catalog_sales", 10, 7),
-        ("store_sales", 3, 3),
-        ("store_sales", 10, 8),
-        ("web_sales", 10, 3),
-        ("web_sales", 20, 6),
+        ("catalog_sales", 3, 3),
+        ("catalog_sales", 10, 11),
+        ("store_sales", 3, 4),
+        ("store_sales", 10, 13),
+        ("web_sales", 10, 5),
+        ("web_sales", 20, 10),
         ("item", 1000, 1),
-        ("customer", 1000, 4),
+        ("customer", 1000, 6),
         ("customer_address", 1000, 1),
         ("customer_demographics", 1000, 1),
-        ("inventory", 1000, 20),
+        ("inventory", 1000, 34),
     ],
 )
 def test_automatic_parts_use_tpcds_row_count_scaling(
@@ -301,6 +301,23 @@ def test_automatic_parts_use_tpcds_row_count_scaling(
     )
 
     assert generator.parts_by_table[table_name] == expected_parts
+
+
+def test_small_tables_target_guarded_minimum_file_size(tmp_path, fake_executable):
+    generator = _TPCDSRsDataGenerator(
+        scale_factor=1000,
+        target_folder_uri=str(tmp_path),
+        table_list=["inventory"],
+    )
+
+    estimated_file_size_mb = (
+        generator._estimated_table_size_gib("inventory") * 1024 / generator.parts_by_table["inventory"]
+    )
+
+    assert generator.parts_by_table["inventory"] == 34
+    assert estimated_file_size_mb >= (
+        128 * generator.MINIMUM_FILE_SIZE_RATIO * generator.MINIMUM_FILE_SIZE_ESTIMATION_HEADROOM
+    )
 
 
 @pytest.mark.parametrize(
