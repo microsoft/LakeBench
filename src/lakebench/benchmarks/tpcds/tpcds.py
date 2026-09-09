@@ -21,7 +21,7 @@ class TPCDS(_LoadAndQuery):
     scenario_name : str
         The name of the benchmark scenario.
     query_list : list of str, optional
-        List of queries to execute. Use '*' for all queries. If not specified, all queries will be run.
+        List of queries to execute. Use '*' or omit this parameter to run query stream 0.
     input_parquet_folder_uri : str, optional
         Path to the input parquet files. Must be the root directory containing a folder named after
         each table in TABLE_REGISTRY.
@@ -37,9 +37,9 @@ class TPCDS(_LoadAndQuery):
         Runs the benchmark in the specified mode.
         Supported modes are:
             - 'load': Sequentially executes loading the 24 tables.
-            - 'query': Sequentially executes the 99 queries.
+            - 'query': Executes query stream 0 by default, or the explicitly requested query list.
             - 'power_test': Executes query stream 0 without loading data.
-            - 'load_and_query': Executes the load test followed by the query test.
+            - 'load_and_query': Executes the load test followed by the default stream or requested query list.
     _run_load_test()
         Loads the data for the benchmark.
     _run_query_test()

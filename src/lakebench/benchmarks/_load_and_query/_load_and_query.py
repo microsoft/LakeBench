@@ -231,7 +231,11 @@ class _LoadAndQuery(BaseBenchmark):
         self.engine.extended_engine_metadata["analyze"] = analyze_mode
 
         self._power_test_uses_full_stream = query_list is None or query_list == ["*"]
-        if query_list is not None:
+        if self._power_test_uses_full_stream and self.QUERY_STREAMS:
+            query_plan = self._query_plan_for_stream(self.POWER_TEST_STREAM)
+            self.query_progress = [progress for progress, _ in query_plan]
+            self.query_list = [query_name for _, query_name in query_plan]
+        elif query_list is not None:
             expanded_query_list = []
             for query in query_list:
                 if query == "*":
@@ -245,9 +249,10 @@ class _LoadAndQuery(BaseBenchmark):
                     f"Query list contains unsupported queries: {unsupported_queries}. Supported queries: {self.QUERY_REGISTRY}."
                 )
             self.query_list = expanded_query_list
+            self.query_progress = None
         else:
             self.query_list = self.QUERY_REGISTRY
-        self.query_progress = None
+            self.query_progress = None
 
         for base_engine, benchmark_impl in self.BENCHMARK_IMPL_REGISTRY.items():
             if isinstance(engine, base_engine):

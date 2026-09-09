@@ -21,7 +21,7 @@ class TPCH(_LoadAndQuery):
     scenario_name : str
         The name of the benchmark scenario.
     query_list : list of str, optional
-        List of queries to execute. Use '*' for all queries. If not specified, all queries will be run.
+        List of queries to execute. Use '*' or omit this parameter to run query stream 0.
     input_parquet_folder_uri : str, optional
         Path to the input parquet files. Must be the root directory containing a folder named after
         each table in TABLE_REGISTRY.
