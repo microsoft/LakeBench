@@ -27,17 +27,17 @@ jobs:
             wheel_tag: py3-none-win_amd64
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check out pinned tpcgen-rs
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: mwc360/tpcgen-rs
           ref: ${{ env.TPCGEN_COMMIT }}
           path: .build/tpcgen-rs
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.11"
           enable-cache: true
@@ -88,7 +88,7 @@ jobs:
           & $python scripts/smoke_test_tpcgen_bundle.py
 
       - name: Upload wheel
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lakebench-${{ matrix.platform }}-x86_64
           path: dist/lakebench-*.whl
