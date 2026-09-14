@@ -110,13 +110,46 @@ benchmark.run()
 
 ---
 
-## Query Resolution Strategy (3-Tier Fallback)
+## Query Resolution Strategy
 
-For each query, LakeBench resolves in this order:
+TPC-H and TPC-DS always load immutable generated ANSI from
+`resources/queries/canonical/sf<scale>/q*.sql`. SQL-file overrides are not searched.
+Both use SQLGlot's built-in `tsql` reader through `parse_tpc_ansi_statements`,
+with minimal generator-specific lexical adaptations; there is no custom dialect.
+The reader accepts TOP and preserves typed, non-safe division and COUNT syntax.
+Its implicit NULL ordering is first for ascending and last for descending;
+explicit NULL ordering is preserved. Never serialize to intermediate T-SQL:
+render the normalized AST directly to the engine's target dialect.
+SQLGlot is pinned to 30.18.0 on Python 3.9+ and 26.30.0 on Python 3.8.
+Maintain adapters for both AST layouts (FROM/WITH keys, DROP target lists, and
+GROUPING nodes). Review SQL diffs before updating the 750 Spark/T-SQL/Fabric output
+fingerprints in tests/fixtures/tpc_query_rendering.json.
+The runtime stages are source parsing, registered `SOURCE_NORMALIZERS` (including
+TPC-H q15 lowering), `QUERY_NORMALIZERS`, `ENGINE_QUERY_NORMALIZERS`, then direct
+AST qualification and target rendering. Each registry applies `"*"` before the
+query ID; engine registries are keyed by class and inherited base-first.
+Rule context.dialect is the source dialect; context.target_dialect is the
+engine's output dialect. TPC-DS sample-standard-deviation and q22 AVG input
+widening rules target tsql/fabric only. q1 repairs the unquoted sr_fee casing
+against the DDL; q72 lowers its date-column + 5 expression to DateAdd.
+Do not normalize identifier case before case-sensitive binding checks.
+Affected queries register shared `normalize_date_interval_arithmetic` to lower
+DATE casts +/- whole DAY/MONTH/YEAR intervals to portable `DateAdd` nodes.
+Subtraction uses a negative amount with an `exp.Neg` node, not `DateSub`
+(unsupported T-SQL output) or a negative numeric Literal (invalid DuckDB output).
+Generated dates, magnitudes, and operation directions must be preserved.
+TPC-H q1 also marks its count_order COUNT(*) node with `big_int=True` through
+a registered rule, rendering COUNT_BIG(*) for T-SQL while retaining COUNT(*)
+for Spark, DuckDB, and MySQL. Do not cast the COUNT result after aggregation:
+that cannot prevent INT overflow inside COUNT.
+Neither benchmark registers join normalization by default: WHERE join predicates
+remain in place even if SQLGlot renders commas as CROSS JOIN. The shared
+join-normalization function is retained for explicit registration. Compatibility fixes must be
+registered structural rules, preserve generated substitutions, and document
+semantic accommodations. Per-query execution telemetry records applied rule IDs.
 
-1. **Engine-specific override** — `resources/queries/<engine_name>/q14.sql` (rare; e.g. Daft decimal casting)
-2. **Parent engine class override** — `resources/queries/<parent_class>/q14.sql` (rare; e.g. Spark family)
-3. **Canonical + auto-transpilation** — `resources/queries/canonical/q14.sql` transpiled via SQLGlot using the engine's `SQLGLOT_DIALECT`
+ClickBench still resolves engine-specific SQL, then parent-engine SQL, then
+canonical Spark SQL with transpilation. Engine-specific DDL fallback is unchanged.
 
 Tables are automatically qualified with catalog and schema when applicable. To inspect the resolved query:
 
@@ -175,7 +208,7 @@ self.post_results()   # flush timer.results → self.results → optionally Delt
 ## Key Conventions
 
 - **All Delta writes for non-Spark engines** go through `engines/delta_rs.py` (`DeltaRs().write_deltalake(...)`).
-- **SQLGlot transpilation** is the default path; engine-specific SQL files are exceptions, not the rule.
+- **SQLGlot transpilation** is the default path; TPC-H/TPC-DS compatibility changes must use registered AST rules, never engine-specific SQL files.
 - **`storage_options`** on `BaseEngine` is the single place for cloud auth credentials (bearer token, SAS, etc.).
 - **`extended_engine_metadata`** on `BaseEngine` is the right place to attach runtime-specific metadata that ends up in the `engine_properties` MAP column of results.
 - **TPC-DS / TPC-H spec compliance**: LakeBench intentionally diverges from `spark-sql-perf` to follow the official specs (see `customer.c_last_review_date_sk` and `store.s_tax_percentage` fixes in README).

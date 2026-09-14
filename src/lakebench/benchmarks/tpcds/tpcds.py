@@ -1,9 +1,24 @@
+import logging
+
 from ...engines.daft import Daft
 from ...engines.duckdb import DuckDB
 from ...engines.polars import Polars
 from ...engines.sail import Sail
 from ...engines.spark import Spark
 from .._load_and_query import _LoadAndQuery
+from .._load_and_query._query_normalizers import TPC_ANSI_READ_DIALECT
+from ._query_normalizers import (
+    ENGINE_QUERY_NORMALIZERS as TPCDS_ENGINE_QUERY_NORMALIZERS,
+)
+from ._query_normalizers import (
+    NORMALIZER_VERSION,
+    parse_tpcds_ansi_query,
+)
+from ._query_normalizers import (
+    QUERY_NORMALIZERS as TPCDS_QUERY_NORMALIZERS,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class TPCDS(_LoadAndQuery):
@@ -20,6 +35,9 @@ class TPCDS(_LoadAndQuery):
         The engine to use for executing the benchmark.
     scenario_name : str
         The name of the benchmark scenario.
+    scale_factor : int, optional
+        Dataset scale factor. SF1000 and SF10000 use matching TPC-DS 4.0.0 stream 0
+        query substitutions. Other values use SF1000 substitutions and emit a warning.
     query_list : list of str, optional
         List of queries to execute. Use '*' or omit this parameter to run query stream 0.
     input_parquet_folder_uri : str, optional
@@ -56,6 +74,13 @@ class TPCDS(_LoadAndQuery):
         Sail: None,
     }
     BENCHMARK_NAME = "TPCDS"
+    CANONICAL_QUERY_DIALECT = TPC_ANSI_READ_DIALECT
+    ALLOW_QUERY_OVERRIDES = False
+    QUERY_NORMALIZERS = TPCDS_QUERY_NORMALIZERS
+    ENGINE_QUERY_NORMALIZERS = TPCDS_ENGINE_QUERY_NORMALIZERS
+    QUERY_SET_SCALE_FACTORS = (1000, 10000)
+    QUERY_SET_FALLBACK_SCALE_FACTOR = 1000
+    QUERY_SET_RNG_SEED = 19620718
     TABLE_REGISTRY = [
         "call_center",
         "catalog_page",
@@ -478,3 +503,37 @@ class TPCDS(_LoadAndQuery):
         ],
         "web_site": ["web_site_sk", "web_site_id", "web_name", "web_company_name"],
     }
+
+    def _configure_query_resources(self) -> None:
+        query_scale_factor = (
+            self.scale_factor
+            if self.scale_factor in self.QUERY_SET_SCALE_FACTORS
+            else self.QUERY_SET_FALLBACK_SCALE_FACTOR
+        )
+        scale_matches = self.scale_factor == query_scale_factor
+        self.query_scale_factor = query_scale_factor
+        self.engine.extended_engine_metadata.update(
+            {
+                "query_set_tpcds_version": self.VERSION,
+                "query_set_scale_factor": str(query_scale_factor),
+                "query_set_rng_seed": str(self.QUERY_SET_RNG_SEED),
+                "query_set_stream": "0",
+                "query_set_scale_matches_data": str(scale_matches).lower(),
+                "query_set_normalizer_version": NORMALIZER_VERSION,
+            }
+        )
+        if not scale_matches:
+            logger.warning(
+                "TPC-DS scale factor %s does not have a matching TPC-DS %s query set. "
+                "Falling back to SF%s stream 0 substitutions; query selectivity does not "
+                "match the requested dataset scale.",
+                self.scale_factor,
+                self.VERSION,
+                query_scale_factor,
+            )
+
+    def _canonical_query_resource_package(self, benchmark_name: str) -> str:
+        return f"lakebench.benchmarks.{benchmark_name}.resources.queries.canonical.sf{self.query_scale_factor}"
+
+    def _parse_canonical_query(self, query_name: str, query: str):
+        return parse_tpcds_ansi_query(query)

@@ -1,0 +1,214 @@
+from pathlib import Path
+
+import pytest
+import sqlglot
+from sqlglot import exp
+from sqlglot.errors import OptimizeError
+from sqlglot.optimizer.qualify_columns import qualify_columns, validate_qualify_columns
+from sqlglot.schema import MappingSchema
+
+from lakebench.benchmarks import TPCDS
+from lakebench.benchmarks._load_and_query._query_normalizers import apply_query_normalizers
+from lakebench.engines.duckdb import DuckDB
+from tests.test_tpch_query_generation import _uninitialized_engine
+
+ROOT = Path(__file__).parents[1] / "src" / "lakebench" / "benchmarks" / "tpcds" / "resources" / "queries" / "canonical"
+DIALECTS = ["tsql", "spark", "duckdb", "mysql", "fabric"]
+
+
+def _benchmark(dialect="tsql", scale=1000):
+    engine = _uninitialized_engine(DuckDB)
+    engine.SQLGLOT_DIALECT = dialect
+    engine.schema_name = "dbo"
+    return TPCDS(
+        engine=engine,
+        scenario_name="warehouse-compatibility",
+        scale_factor=scale,
+        input_parquet_folder_uri="file:///tmp/tpcds",
+    )
+
+
+@pytest.mark.parametrize("scale", [1000, 10000])
+@pytest.mark.parametrize("dialect", DIALECTS)
+@pytest.mark.parametrize("name", ["q17", "q29", "q35", "q39a", "q39b"])
+def test_sample_stddev_rewrites_only_tsql_function_name(scale, dialect, name):
+    benchmark = _benchmark(dialect, scale)
+    benchmark.QUERY_NORMALIZERS = {}
+    before = benchmark._return_query_definition(name)
+    benchmark.QUERY_NORMALIZERS = TPCDS.QUERY_NORMALIZERS
+    after = benchmark._return_query_definition(name)
+    assert after == (before.replace("STDDEV_SAMP(", "STDEV(") if dialect in {"tsql", "fabric"} else before)
+    if dialect in {"tsql", "fabric"}:
+        assert "STDDEV_SAMP(" not in after
+        assert "STDEVP(" not in after
+    if scale == 1000 and name in {"q29", "q35"}:
+        assert after == before
+    source = (ROOT / f"sf{scale}" / f"{name}.sql").read_text()
+    normalized = benchmark._normalize_canonical_query(name, source)
+    assert (
+        apply_query_normalizers(
+            normalized,
+            name,
+            benchmark._query_normalization_schema(),
+            benchmark.CANONICAL_QUERY_DIALECT,
+            benchmark.QUERY_NORMALIZERS,
+            target_dialect=dialect,
+        )
+        == normalized
+    )
+
+
+def test_sample_stddev_preserves_sample_not_population_semantics():
+    duckdb = pytest.importorskip("duckdb")
+    source = sqlglot.parse_one("SELECT STDDEV_SAMP(x) FROM (VALUES (1.0), (2.0), (3.0), (NULL)) t(x)", read="tsql")
+    normalized = apply_query_normalizers(source, "q17", {}, "tsql", TPCDS.QUERY_NORMALIZERS, target_dialect="tsql")
+    assert source.find(exp.StddevSamp) is not None
+    assert normalized.find(exp.StddevSamp) is None
+    rendered = normalized.sql(dialect="tsql")
+    assert "STDEV(x)" in rendered
+    with duckdb.connect() as connection:
+        assert connection.execute(sqlglot.parse_one(rendered, read="tsql").sql(dialect="duckdb")).fetchone() == (1.0,)
+
+
+def test_target_dialect_does_not_change_source_reader_or_leak_between_runs():
+    benchmark = _benchmark()
+    first = benchmark._return_query_definition("q39a")
+    benchmark.engine.SQLGLOT_DIALECT = "spark"
+    second = benchmark._return_query_definition("q39a")
+    benchmark.engine.SQLGLOT_DIALECT = "tsql"
+    assert benchmark.CANONICAL_QUERY_DIALECT == "tsql"
+    assert "STDEV(" in first
+    assert "STDDEV_SAMP(" in second
+    assert benchmark._return_query_definition("q39a") == first
+
+
+@pytest.mark.parametrize("scale", [1000, 10000])
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_q22_widens_the_average_input_only_for_warehouse_dialects(scale, dialect):
+    benchmark = _benchmark(dialect, scale)
+    benchmark.QUERY_NORMALIZERS = {}
+    before = benchmark._return_query_definition("q22")
+    benchmark.QUERY_NORMALIZERS = TPCDS.QUERY_NORMALIZERS
+    after = benchmark._return_query_definition("q22")
+    if dialect in {"tsql", "fabric"}:
+        assert after == before.replace("AVG(inv_quantity_on_hand)", "AVG(CAST(inv_quantity_on_hand AS BIGINT))")
+        assert "CAST(AVG(" not in after
+    else:
+        assert after == before
+    source = (ROOT / f"sf{scale}" / "q22.sql").read_text()
+    normalized = benchmark._normalize_canonical_query("q22", source)
+    assert (
+        apply_query_normalizers(
+            normalized,
+            "q22",
+            benchmark._query_normalization_schema(),
+            benchmark.CANONICAL_QUERY_DIALECT,
+            benchmark.QUERY_NORMALIZERS,
+            target_dialect=dialect,
+        )
+        == normalized
+    )
+
+
+@pytest.mark.parametrize(
+    "projection",
+    [
+        "SUM(inv_quantity_on_hand) AS qoh",
+        "AVG(other_column) AS qoh",
+        "AVG(CAST(inv_quantity_on_hand AS DOUBLE)) AS qoh",
+        "AVG(inv_quantity_on_hand) AS other_alias",
+    ],
+)
+def test_q22_rejects_unexpected_average_shape(projection):
+    benchmark = _benchmark()
+    with pytest.raises(ValueError, match="Expected q22"):
+        apply_query_normalizers(
+            sqlglot.parse_one(f"SELECT {projection} FROM inventory", read="tsql"),
+            "q22",
+            benchmark._query_normalization_schema(),
+            "tsql",
+            benchmark.QUERY_NORMALIZERS,
+            target_dialect="tsql",
+        )
+
+
+@pytest.mark.parametrize("scale", [1000, 10000])
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_q1_only_changes_fee_identifier_case(scale, dialect):
+    benchmark = _benchmark(dialect, scale)
+    benchmark.QUERY_NORMALIZERS = {}
+    before = benchmark._return_query_definition("q1")
+    benchmark.QUERY_NORMALIZERS = TPCDS.QUERY_NORMALIZERS
+    after = benchmark._return_query_definition("q1")
+    assert "SUM(SR_FEE)" in before
+    assert after == before.replace("SUM(SR_FEE)", "SUM(sr_fee)")
+
+
+def test_q1_case_rule_preserves_aliases_and_literals():
+    source = sqlglot.parse_one("SELECT SUM(SR_FEE) AS FeeTotal, 'SR_FEE' AS Label FROM store_returns", read="tsql")
+    normalized = apply_query_normalizers(
+        source, "q1", {"store_returns": {"sr_fee": "DECIMAL(7, 2)"}}, "tsql", TPCDS.QUERY_NORMALIZERS
+    )
+    assert normalized.expressions[0].alias == "FeeTotal"
+    assert normalized.expressions[1] == source.expressions[1]
+    assert source.find(exp.Column).name == "SR_FEE"
+    assert normalized.find(exp.Column).name == "sr_fee"
+
+
+@pytest.mark.parametrize("fee", ["[SR_FEE]", "other.SR_FEE", "sr_return_amt"])
+def test_q1_case_rule_rejects_unexpected_reference(fee):
+    with pytest.raises(ValueError, match="store_returns.sr_fee"):
+        apply_query_normalizers(
+            sqlglot.parse_one(f"SELECT SUM({fee}) FROM store_returns", read="tsql"),
+            "q1",
+            {"store_returns": {"sr_fee": "DECIMAL(7, 2)"}},
+            "tsql",
+            TPCDS.QUERY_NORMALIZERS,
+        )
+
+
+@pytest.mark.parametrize("scale", [1000, 10000])
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_q72_only_lowers_the_five_day_offset(scale, dialect):
+    benchmark = _benchmark(dialect, scale)
+    source = (ROOT / f"sf{scale}" / "q72.sql").read_text()
+    benchmark.QUERY_NORMALIZERS = {"q72": TPCDS.QUERY_NORMALIZERS["q72"][:1]}
+    before = benchmark._normalize_canonical_query("q72", source)
+    benchmark.QUERY_NORMALIZERS = TPCDS.QUERY_NORMALIZERS
+    after = benchmark._normalize_canonical_query("q72", source)
+    offset = after.find(exp.DateAdd)
+    assert offset.this == exp.column("d_date", table="d1")
+    assert offset.expression == exp.Literal.number(5)
+    assert offset.args["unit"].name == "DAY"
+    reverted = after.copy()
+    reverted.find(exp.DateAdd).replace(exp.Add(this=offset.this.copy(), expression=offset.expression.copy()))
+    assert reverted == before
+    if dialect in {"tsql", "fabric"}:
+        assert "d3.d_date > DATEADD(DAY, 5, d1.d_date)" in benchmark._return_query_definition("q72")
+
+
+@pytest.mark.parametrize("replacement", ["d1.d_date + 6", "d1.d_date - 5", "d1.d_date_sk + 5"])
+def test_q72_rejects_unexpected_date_offset(replacement):
+    benchmark = _benchmark()
+    source = (ROOT / "sf1000" / "q72.sql").read_text().replace("d1.d_date + 5", replacement)
+    with pytest.raises(ValueError, match="q72"):
+        benchmark._normalize_canonical_query("q72", source)
+
+
+@pytest.mark.parametrize("scale", [1000, 10000])
+@pytest.mark.parametrize("dialect", ["tsql", "fabric"])
+def test_all_tpcds_tsql_column_bindings_preserve_identifier_case(scale, dialect):
+    benchmark = _benchmark(dialect=dialect, scale=scale)
+    schema = MappingSchema({"dbo": benchmark._query_normalization_schema()}, normalize=False)
+    for name in benchmark.QUERY_REGISTRY:
+        expression = sqlglot.parse_one(benchmark._return_query_definition(name), read=dialect)
+        qualify_columns(expression, schema, expand_alias_refs=False, infer_schema=False)
+        validate_qualify_columns(expression)
+
+
+def test_case_sensitive_binding_rejects_the_original_sr_fee_spelling():
+    schema = MappingSchema({"store_returns": {"sr_fee": "DECIMAL(7,2)"}}, normalize=False)
+    expression = sqlglot.parse_one("SELECT SUM(SR_FEE) FROM store_returns AS store_returns", read="tsql")
+    with pytest.raises(OptimizeError, match="SR_FEE"):
+        qualify_columns(expression, schema, expand_alias_refs=False, infer_schema=False)
+        validate_qualify_columns(expression)

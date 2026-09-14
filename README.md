@@ -336,33 +336,94 @@ benchmark.run()
 
 ## Managing Queries Over Various Dialects
 
-LakeBench supports multiple engines that each leverage different SQL dialects and capabilities. To handle this diversity while maintaining consistency, LakeBench employs a **hierarchical query resolution strategy** that balances automated transpilation with engine-specific customization.
+LakeBench uses SQLGlot to translate benchmark queries to each engine's dialect. TPC-H and TPC-DS start from immutable generated ANSI SQL; compatibility changes are registered AST rules, not alternate SQL files.
 
 ### Query Resolution Strategy
 
-LakeBench uses a three-tier fallback approach for each query:
+For **TPC-H and TPC-DS**, runtime compilation proceeds in this order:
 
-1. **Engine-Specific Override** (if exists - rare)
-   - Custom queries tailored for specific engine limitations or optimizations
-   - Example: `src/lakebench/benchmarks/tpch/resources/queries/daft/q14.sql` -> Daft is generally sensitive to multiplying decimals and thus requires casing to `DOUBLE` or managing specific decimal types.
+1. Load the selected `resources/queries/canonical/sf<scale>/q*.sql` ANSI source and parse generator syntax.
+2. Apply `SOURCE_NORMALIZERS` to parsed statement bundles. TPC-H registers qgen row limits for `"*"` and q15's `CREATE VIEW` / `SELECT` / `DROP VIEW` to CTE lowering for `"q15"`.
+3. Apply `QUERY_NORMALIZERS`: shared `"*"` rules first, then rules for the query ID. Join normalization is not registered by default; WHERE join predicates remain in place even when SQLGlot renders comma joins as CROSS JOIN. The shared join-normalization function remains available for explicit registration.
+4. Apply `ENGINE_QUERY_NORMALIZERS` registered for the engine class and its ancestors, base classes first. Each class uses the same `"*"`-then-query convention.
+5. Qualify catalog/schema references and render the AST directly to the engine's `SQLGLOT_DIALECT`, without an intermediate SQL serialization.
 
-2. **Parent Engine Class Override** (if exists - rare)
-   - Shared customizations for engine families, i.e. Spark (_not yet leveraged by any engine and benchmark combinations_).
-   - Example: `src/lakebench/benchmarks/tpch/resources/queries/spark/q14.sql`
+Both TPC benchmarks use SQLGlot's **built-in `tsql` reader** for the generated
+ANSI syntax, with minimal generator-specific lexical adaptations. No custom
+dialect is defined, and the source files remain exact qgen/dsqgen output.
+The reader accepts dsqgen's TOP syntax and preserves typed division and COUNT,
+avoiding parser-induced FLOAT casts, NULLIF protections, and PostgreSQL-specific
+ordering CASE expressions in T-SQL output. Its default NULL ordering is first
+for ascending and last for descending; explicitly specified NULL ordering is
+preserved. This reader choice is independent of the target engine, which may
+use `spark`, `tsql`, `duckdb`, or another supported SQLGlot dialect.
 
-3. **Canonical + Transpilation** (fallback - common)
-   - SparkSQL canonical queries are automatically transpiled via SQLGlot. Each engine registers its `SQLGLOT_DIALECT` constant, enabling automatic transpilation when custom queries aren't needed.
-   - Example: `src/lakebench/benchmarks/tpch/resources/queries/canonical/q14.sql`
+Affected TPC queries register the shared `normalize_date_interval_arithmetic`
+rule to lower DATE-cast arithmetic with whole DAY/MONTH/YEAR intervals to
+portable `DateAdd` AST nodes. T-SQL renders these as `DATEADD`, including negative
+amounts for subtraction; Spark, DuckDB, and other targets render their native
+date arithmetic. Dates, interval magnitudes, and direction remain unchanged.
+The generated files are untouched. The rule rejects unsupported interval shapes:
+SQLGlot accepting ANSI `INTERVAL` under its T-SQL reader does not mean Fabric
+Warehouse can execute that syntax.
 
-In all cases, tables are automatically qualified with the catalog and schema if applicable to the engine class.
+TPC-H q1 also registers a wide-count rule: SQLGlot's `Count.big_int` metadata
+renders `COUNT_BIG(*) AS count_order` for T-SQL, avoiding the 2,147,483,647-row
+per-group limit of `COUNT(*)`. Spark, DuckDB, and MySQL-dialect output retains
+`COUNT(*)`. This is a result-type widening, not a change to which rows are counted;
+casting an already-overflowed `COUNT(*)` result to BIGINT would not fix the error.
 
-### Why This Approach?
+Static query sets currently cover SF1000 and SF10000. Other data scales log a warning and use SF1000 query substitutions; result metadata records the mismatch. Future runtime generation can supply a new ANSI statement bundle to the same pipeline.
 
-**Real-World Engine Limitations**: Engines like Daft lack support for `DATE_ADD`, `CROSS JOIN`, subqueries, and non-equi joins. Polars doesn't support non-equi joins. Rather than restricting all queries to the lowest common denominator, LakeBench allows targeted workarounds.
+**Breaking change in v2:** TPC-H/TPC-DS engine, parent-engine, and third-party SQL-file overrides are no longer searched. Existing overrides must be migrated to registered structural rules. ClickBench retains engine/parent SQL-file fallback, and engine-specific DDL resolution is unchanged.
 
-**Automated Transpilation Where Possible**: For most queries, SQLGlot can successfully transpile SparkSQL to engine-specific dialects (DuckDB, Postgres, SQLServer, etc.), eliminating manual maintenance overhead and a proliferation of query variants.
+### SQLGlot Upgrade Guardrails
 
-**Expert Optimization**: Engine specific subject matter experts can contribute PRs with optimized query variants that reasonably follow the specification of the benchmark author (i.e. TPC).
+SQLGlot is pinned to **30.18.0 on Python 3.9+**. Python 3.8 retains **26.30.0**
+because newer SQLGlot releases require Python 3.9+. The AST adapters support both
+versions, including FROM/WITH argument names, DROP VIEW target lists, and GROUPING
+function nodes.
+
+`tests/test_tpc_sqlglot_compatibility.py` checks reviewed output fingerprints in
+`tests/fixtures/tpc_query_rendering.json` for all **750** TPC-H/TPC-DS renderings
+(both static scales, Spark, T-SQL, and Fabric, on both pinned SQLGlot versions).
+Review actual SQL differences before
+refreshing these fingerprints; do not regenerate them just to clear a failure.
+The 26.30.0-to-30.18.0 comparison found 472 identical outputs and 28 differences
+limited to equivalent NOT LIKE spelling and generated subquery alias names.
+Generated source hashes remain independently checked against their manifests.
+
+The upgrade does not make the existing compatibility rules redundant. Registered
+TPC-DS rules now fix STDDEV_SAMP rendering for T-SQL/Fabric, q72's DATE + integer
+expression, and q1's SR_FEE/sr_fee casing mismatch. q22 widens the integer input
+of AVG to BIGINT for T-SQL/Fabric to avoid overflow in the accumulator, preserving
+those engines' integer-average behavior. Spark, DuckDB, and MySQL retain their
+sample-standard-deviation and AVG expressions. The built-in Fabric dialect is
+a suitable Warehouse target, but does not replace these rules.
+
+Case-sensitive binding checks intentionally bypass identifier normalization so
+they catch mismatches like SR_FEE versus the declared sr_fee column. Successful
+grammar parsing alone does not establish Warehouse execution support.
+
+### Registering Compatibility Rules
+
+Registries live in each benchmark's `_query_normalizers.py` and are bound on the benchmark class. AST rules accept `(expression, context)`, modify the supplied copied AST, and return `None`. Source rules instead receive a mutable list of parsed statements; after source lowering, exactly one query must remain. Rules must validate expected shapes and raise explicitly rather than substitute another query.
+
+`context.dialect` is the source parser dialect; `context.target_dialect` is the
+engine's output dialect. Target-specific rules must inspect the latter. The
+runtime supplies it to both source and query rules; direct callers of
+`apply_query_normalizers` can pass `target_dialect` explicitly.
+
+For example, an engine integration can extend the TPC-H engine registry:
+
+```python
+TPCH.ENGINE_QUERY_NORMALIZERS = {
+    **TPCH.ENGINE_QUERY_NORMALIZERS,
+    MyEngine: {"q14": (normalize_q14_for_my_engine,)},
+}
+```
+
+Preserve generated literals and make AST rules idempotent. Current engine accommodations include Daft DOUBLE arithmetic casts in TPC-H q1/q8/q9/q14 and Sail's NULLIF denominator in TPC-DS q12. These are **semantic accommodations** (numeric precision and division-by-zero behavior), not merely syntax fixes. Applied rule identifiers are recorded per query in `execution_telemetry["query_normalization_rules"]`, alongside the benchmark's normalizer version in engine metadata. Successful transpilation alone does not establish specification equivalence or engine execution support.
 
 ### Viewing Generated Queries
 
@@ -374,7 +435,7 @@ query_str = benchmark._return_query_definition('q14')
 print(query_str)  # Shows final transpiled/customized query
 ```
 
-This approach ensures **consistency** (same business logic across engines), **accessibility** (as much as possible, engines work out-of-the-box), and **flexibility** (custom optimizations where needed).
+All engines now receive the same selected TPC source substitutions, with compatibility changes explicit and reviewable.
 
 # 📬 Feedback / Contributions
 Got ideas? Found a bug? Want to contribute a benchmark or engine wrapper? PRs and issues are welcome!
