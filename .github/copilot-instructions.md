@@ -74,10 +74,17 @@ Abstract base for all benchmarks.
 | Attribute | Description |
 |---|---|
 | `BENCHMARK_IMPL_REGISTRY` | `Dict[EngineClass → ImplClass]` — maps engines to optional engine-specific implementations |
-| `RESULT_SCHEMA` | Canonical 21-column result schema (see below) |
+| `RESULT_SCHEMA` | Canonical 24-column result schema (see below) |
 | `VERSION` | Benchmark version string |
 
-The result schema includes: `run_id`, `run_datetime`, `lakebench_version`, `engine`, `engine_version`, `benchmark`, `benchmark_version`, `mode`, `scale_factor`, `scenario`, `total_cores`, `compute_size`, `phase`, `test_item`, `start_datetime`, `duration_ms`, `estimated_retail_job_cost`, `iteration`, `success`, `error_message`, `engine_properties` (MAP), `execution_telemetry` (MAP).
+The result schema includes: `run_id`, `run_datetime`, `lakebench_version`, `engine`, `engine_version`, `benchmark`, `benchmark_version`, `mode`, `scale_factor`, `scenario`, `total_cores`, `compute_size`, `phase`, `sub_phase`, `test_item`, `start_datetime`, `duration_ms`, `estimated_retail_job_cost`, `iteration`, `success`, `error_message`, `sql_text`, `engine_properties` (MAP), `execution_telemetry` (MAP).
+
+`sql_text` holds the exact SQL string handed to the engine, after normalization
+and transpilation. It is set from `TimerContext.sql_text` and is populated for
+the `Query` phase of every load-and-query benchmark (TPC-H, TPC-DS,
+ClickBench), including failed queries. It is NULL for test items that do not
+execute a single SQL statement — load, optimize, analyze, and all ELTBench
+phases, some of which use DataFrame APIs rather than SQL.
 
 `post_results()` collects timer results → builds result rows → optionally appends to a Delta table via `engine._append_results_to_delta()`.
 
@@ -209,10 +216,14 @@ pip install lakebench[duckdb,polars,tpch_datagen]
 ```python
 with self.timer(phase="load", test_item="q1", engine=self.engine) as t:
     t.execution_telemetry = {"rows": 1000}   # optional metadata
+    t.sql_text = "SELECT ..."                # optional; lands in the sql_text column
     do_work()
 
 self.post_results()   # flush timer.results → self.results → optionally Delta
 ```
+
+Set `sql_text` *before* executing, so the statement is still recorded when the
+engine raises.
 
 ---
 

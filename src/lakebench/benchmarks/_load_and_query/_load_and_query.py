@@ -481,6 +481,7 @@ class _LoadAndQuery(BaseBenchmark):
                 engine=self.engine,
                 progress=progress,
             ) as tc:
+                tc.sql_text = prepped_query
                 try:
                     if self.benchmark_impl is not None:
                         tc.execution_telemetry = self.benchmark_impl.execute_sql_query(

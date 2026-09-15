@@ -217,8 +217,11 @@ def test_executed_rule_provenance_survives_engine_failure(fails):
         benchmark._run_query_test()
         result = timer.results[0]
         assert result[6] is not fails
-        assert json.loads(result[-1]["query_normalization_rules"]) == ["engine:example.rule"]
+        telemetry = result[8]
+        assert json.loads(telemetry["query_normalization_rules"]) == ["engine:example.rule"]
+        # The executed SQL is recorded whether or not the engine raised.
+        assert result[9] == "SELECT 1"
         if not fails:
-            assert result[-1]["rows"] == "1"
+            assert telemetry["rows"] == "1"
     finally:
         timer.results = original_results
