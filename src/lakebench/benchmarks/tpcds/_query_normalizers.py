@@ -3,16 +3,18 @@ from typing import Dict, List, Tuple
 
 from sqlglot import exp
 
+from ...engines.polars import Polars
 from ...engines.sail import Sail
 from .._load_and_query._query_normalizers import (
     EngineNormalizerRegistry,
     QueryNormalizer,
     QueryNormalizerContext,
+    fold_constant_date_arithmetic,
     normalize_date_interval_arithmetic,
     parse_tpc_ansi_statements,
 )
 
-NORMALIZER_VERSION = "9"
+NORMALIZER_VERSION = "11"
 
 
 def _normalize_ansi_syntax(query: str) -> str:
@@ -172,6 +174,33 @@ def _normalize_q90(
         )
 
 
+def _normalize_q9_wide_counts(
+    expression: exp.Expression,
+    context: QueryNormalizerContext,
+) -> None:
+    """Widens q9's bucket counters, which T-SQL otherwise overflows.
+
+    Each bucket compares a threshold against COUNT(*) over store_sales filtered
+    only by an ss_quantity range, so the count is a fifth of the fact table. At
+    SF10000 that exceeds the 2,147,483,647 limit of T-SQL's INT counter and the
+    query fails with "Arithmetic overflow error converting expression to data
+    type int". The other TPC-DS queries that count a fact table without grouping
+    (q88, q90, q96) bound the count with selective dimension joins.
+
+    Only the counter width changes; Spark, DuckDB, and MySQL still render
+    COUNT(*). Casting the result cannot help, because the overflow happens
+    inside the aggregate.
+    """
+    counts = [count for count in expression.find_all(exp.Count) if isinstance(count.this, exp.Star)]
+    if len(counts) != 5:
+        raise ValueError(f"Expected five COUNT(*) bucket thresholds in q9, found {len(counts)}.")
+    for count in counts:
+        subquery = count.find_ancestor(exp.Subquery)
+        if subquery is None or not isinstance(subquery.parent, exp.GT) or subquery.parent.this is not subquery:
+            raise ValueError("Expected each q9 COUNT(*) to be a scalar subquery compared to a threshold.")
+        count.set("big_int", True)
+
+
 def _is_bigint_cast(expression: exp.Expression) -> bool:
     return (
         isinstance(expression, exp.Cast)
@@ -228,6 +257,7 @@ def _normalize_q97(
 QUERY_NORMALIZERS: Dict[str, Tuple[QueryNormalizer, ...]] = {
     "q1": (_normalize_q1_fee_identifier,),
     "q5": (normalize_date_interval_arithmetic,),
+    "q9": (_normalize_q9_wide_counts,),
     "q12": (normalize_date_interval_arithmetic,),
     "q16": (normalize_date_interval_arithmetic,),
     "q17": (_normalize_tsql_sample_stddev,),
@@ -280,6 +310,7 @@ def _sail_q12_safe_denominator(expression: exp.Expression, context: QueryNormali
 
 
 ENGINE_QUERY_NORMALIZERS: EngineNormalizerRegistry = {
+    Polars: {"*": (fold_constant_date_arithmetic,)},
     Sail: {"q12": (_sail_q12_safe_denominator,)},
 }
 

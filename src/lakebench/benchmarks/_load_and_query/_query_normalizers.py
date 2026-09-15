@@ -1,3 +1,5 @@
+import calendar
+import datetime
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Callable, Dict, Iterable, List, Mapping, Optional, Tuple, Type
@@ -90,6 +92,79 @@ def normalize_date_interval_arithmetic(
                 this=date.copy(),
                 expression=amount_expression,
                 unit=exp.Var(this=unit.name.upper()),
+            )
+        )
+
+
+def _parse_date_literal(value: str) -> Optional[datetime.date]:
+    """Parses a generated date literal, which may use unpadded month or day fields."""
+    parts = value.strip().split("-")
+    if len(parts) != 3:
+        return None
+    try:
+        year, month, day = (int(part) for part in parts)
+        return datetime.date(year, month, day)
+    except ValueError:
+        return None
+
+
+def _fold_date_literal(date: datetime.date, amount: int, unit: str) -> datetime.date:
+    """Applies a whole DAY, MONTH, or YEAR offset to a constant date."""
+    if unit == "DAY":
+        return date + datetime.timedelta(days=amount)
+    months = amount if unit == "MONTH" else amount * 12
+    total = (date.year * 12 + date.month - 1) + months
+    year, month = divmod(total, 12)
+    month += 1
+    # Clamp to the last valid day, matching every supported engine's month arithmetic.
+    day = min(date.day, calendar.monthrange(year, month)[1])
+    return datetime.date(year, month, day)
+
+
+def fold_constant_date_arithmetic(
+    expression: exp.Expression,
+    context: QueryNormalizerContext,
+) -> None:
+    """Evaluates DateAdd over a constant date, for engines whose SQL parser rejects intervals.
+
+    Polars' SQL frontend cannot parse any interval syntax, so the portable
+    ``DateAdd`` nodes produced by ``normalize_date_interval_arithmetic`` fail to
+    render for it even though its DuckDB output dialect is valid DuckDB. Both
+    operands of these generated offsets are literals, so evaluating them here
+    produces exactly the date the other engines compute at runtime.
+
+    Only fully constant offsets are folded. A ``DateAdd`` over a column, such as
+    TPC-DS q72's ``d1.d_date + 5``, is left untouched: there is nothing to
+    evaluate, and substituting a value would change the query.
+    """
+    for offset in list(expression.find_all(exp.DateAdd)):
+        date = offset.this
+        if not isinstance(date, exp.Cast) or date.args["to"].this != exp.DataType.Type.DATE:
+            continue
+        literal = date.this
+        if not isinstance(literal, exp.Literal) or not literal.is_string:
+            continue
+        unit = offset.args.get("unit")
+        if unit is None or unit.name.upper() not in {"DAY", "MONTH", "YEAR"}:
+            continue
+        amount_expression = offset.expression
+        negated = isinstance(amount_expression, exp.Neg)
+        if negated:
+            amount_expression = amount_expression.this
+        if not isinstance(amount_expression, exp.Literal) or amount_expression.is_string:
+            continue
+        try:
+            amount = int(amount_expression.this)
+        except ValueError:
+            continue
+        start = _parse_date_literal(literal.this)
+        if start is None:
+            continue
+        folded = _fold_date_literal(start, -amount if negated else amount, unit.name.upper())
+        offset.replace(
+            exp.Cast(
+                this=exp.Literal.string(folded.isoformat()),
+                to=exp.DataType.build("DATE"),
             )
         )
 

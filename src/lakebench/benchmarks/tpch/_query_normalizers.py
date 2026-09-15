@@ -4,16 +4,18 @@ from typing import Dict, List, Set, Tuple
 from sqlglot import exp
 
 from ...engines.daft import Daft
+from ...engines.polars import Polars
 from .._load_and_query._query_normalizers import (
     EngineNormalizerRegistry,
     QueryNormalizer,
     QueryNormalizerContext,
     SourceNormalizerRegistry,
+    fold_constant_date_arithmetic,
     normalize_date_interval_arithmetic,
     parse_tpc_ansi_statements,
 )
 
-NORMALIZER_VERSION = "8"
+NORMALIZER_VERSION = "9"
 
 
 def _normalize_q1_wide_count(expression: exp.Expression, context: QueryNormalizerContext) -> None:
@@ -165,7 +167,8 @@ ENGINE_QUERY_NORMALIZERS: EngineNormalizerRegistry = {
         "q8": (_daft_q8_q14_numeric_casts,),
         "q9": (_daft_q9_numeric_casts,),
         "q14": (_daft_q8_q14_numeric_casts,),
-    }
+    },
+    Polars: {"*": (fold_constant_date_arithmetic,)},
 }
 
 

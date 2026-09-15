@@ -3,7 +3,7 @@
 See [Query Normalization](README.md) for the shared pipeline and rule contract.
 
 - **Module:** `src/lakebench/benchmarks/tpch/_query_normalizers.py`
-- **Normalizer version:** `8`
+- **Normalizer version:** `9`
 - **Queries:** 22
 
 ---
@@ -110,8 +110,7 @@ At SF1000+ q1's groups exceed that.
 
 ### Engine normalizers
 
-Registered for **Daft** only, which lacks implicit numeric promotion in
-arithmetic on decimal columns.
+**Daft** lacks implicit numeric promotion in arithmetic on decimal columns:
 
 | Rule | Queries | Casts |
 |---|---|---|
@@ -123,6 +122,50 @@ Each casts to `DOUBLE` only where the column participates in arithmetic, is
 idempotent (an existing `DOUBLE` cast is left alone), and **raises if the
 expected columns are not all found** — so a source change cannot leave Daft
 silently uncast.
+
+**Polars** registers the shared `fold_constant_date_arithmetic` under `"*"`; see
+[Polars constant date folding](#polars-constant-date-folding) below.
+
+---
+
+## Polars constant date folding
+
+Polars' SQL frontend cannot parse *any* interval syntax, so the `DateAdd` nodes
+above fail to render for it — `SQLSyntaxError: unsupported interval syntax
+('INTERVAL 1 YEAR')` — even though the DuckDB dialect it targets produces valid
+DuckDB.
+
+> This is the `duckdb`-dialect hazard in practice: **Polars and DuckDB share
+> `SQLGLOT_DIALECT = "duckdb"` but not an executor.** DuckDB passes these
+> queries; Polars does not.
+
+`fold_constant_date_arithmetic` (in `_load_and_query/_query_normalizers.py`,
+registered under the `Polars` engine class for both TPC benchmarks) evaluates
+the offset at compile time when **both operands are literals**, replacing
+`CAST('1998-12-01' AS DATE) + INTERVAL (-111) DAY` with
+`CAST('1998-08-12' AS DATE)`.
+
+Both operands of every generated TPC offset *are* literals, so this yields
+exactly the date the other engines compute at runtime — verified by executing
+each folded constant against DuckDB's own evaluation of the same expression
+(37 offsets across TPC-H and TPC-DS).
+
+Details that matter:
+
+- **Non-constant offsets are skipped, not folded.** TPC-DS q72's
+  `d1.d_date + 5` has nothing to evaluate, and substituting a value would change
+  the query. It still renders interval syntax and still fails on Polars.
+- Unlike most rules this one does **not** raise when it finds no match: it is
+  registered for `"*"`, and most queries have no date offset at all.
+- Generated date literals may be unpadded (`2002-4-01` from dsqgen), so the
+  parser accepts those rather than requiring strict ISO format.
+- Month and year arithmetic clamps to the last valid day of the target month.
+- **The canonical source files are untouched.** This is a render-time
+  accommodation for one engine, not a reversion to the pre-migration practice of
+  baking static dates into the query text.
+
+Affects TPC-H q1, q4, q5, q6, q10, q12, q14, q15, q20 and TPC-DS q5, q12, q16,
+q20, q21, q32, q37, q40, q77, q80, q82, q92, q94, q95, q98.
 
 ---
 

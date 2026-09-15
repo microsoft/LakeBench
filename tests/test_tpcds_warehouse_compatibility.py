@@ -212,3 +212,77 @@ def test_case_sensitive_binding_rejects_the_original_sr_fee_spelling():
     with pytest.raises(OptimizeError, match="SR_FEE"):
         qualify_columns(expression, schema, expand_alias_refs=False, infer_schema=False)
         validate_qualify_columns(expression)
+
+
+@pytest.mark.parametrize("scale", [1000, 10000])
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_q9_bucket_counts_widen_only_for_tsql(scale, dialect):
+    """T-SQL COUNT(*) returns INT and overflows on q9's fifth-of-a-fact-table buckets."""
+    benchmark = _benchmark(dialect, scale)
+    benchmark.QUERY_NORMALIZERS = {}
+    before = benchmark._return_query_definition("q9")
+    benchmark.QUERY_NORMALIZERS = TPCDS.QUERY_NORMALIZERS
+    after = benchmark._return_query_definition("q9")
+
+    assert before.count("COUNT(*)") == 5
+    assert after == (before.replace("COUNT(*)", "COUNT_BIG(*)") if dialect in {"tsql", "fabric"} else before)
+    if dialect in {"tsql", "fabric"}:
+        assert after.count("COUNT_BIG(*)") == 5
+        assert "COUNT(*)" not in after
+        # Widening the counter, not casting its overflowed result.
+        assert "CAST(COUNT" not in after.upper()
+
+
+@pytest.mark.parametrize("scale", [1000, 10000])
+def test_q9_widening_preserves_every_threshold_and_average(scale):
+    benchmark = _benchmark("tsql", scale)
+    source = (ROOT / f"sf{scale}" / "q9.sql").read_text()
+    normalized = benchmark._normalize_canonical_query("q9", source)
+    original = benchmark._parse_canonical_query("q9", source)[0]
+
+    def summarize(expression):
+        return (
+            [literal.sql() for literal in expression.find_all(exp.Literal)],
+            [average.sql() for average in expression.find_all(exp.Avg)],
+            [alias.alias for alias in expression.expressions],
+        )
+
+    assert summarize(normalized) == summarize(original)
+    assert all(count.args.get("big_int") for count in normalized.find_all(exp.Count))
+
+
+@pytest.mark.parametrize("scale", [1000, 10000])
+def test_q9_widening_is_idempotent(scale):
+    benchmark = _benchmark("tsql", scale)
+    source = (ROOT / f"sf{scale}" / "q9.sql").read_text()
+    normalized = benchmark._normalize_canonical_query("q9", source)
+    again = apply_query_normalizers(
+        normalized,
+        "q9",
+        benchmark._query_normalization_schema(),
+        benchmark.CANONICAL_QUERY_DIALECT,
+        benchmark.QUERY_NORMALIZERS,
+        target_dialect="tsql",
+    )
+    assert again == normalized
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        ("(select count(*)", "(select count(ss_quantity)"),
+        (") > 2972190", ") + 0 > 2972190"),
+    ],
+)
+def test_q9_rejects_unexpected_bucket_shapes(mutation):
+    benchmark = _benchmark()
+    source = (ROOT / "sf1000" / "q9.sql").read_text().replace(*mutation, 1)
+    with pytest.raises(ValueError, match="q9"):
+        benchmark._normalize_canonical_query("q9", source)
+
+
+def test_other_ungrouped_fact_counts_are_left_alone():
+    """q88, q90, and q96 bound their counts with selective dimension joins."""
+    benchmark = _benchmark("tsql")
+    for name in ("q88", "q90", "q96"):
+        assert "COUNT_BIG(" not in benchmark._return_query_definition(name), name

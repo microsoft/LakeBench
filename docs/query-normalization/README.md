@@ -86,6 +86,12 @@ returns `None`. It must:
 satisfy Fabric Warehouse must test `context.target_dialect`, not
 `context.dialect`.
 
+> **A dialect is not an engine.** Polars and DuckDB both render through
+> `SQLGLOT_DIALECT = "duckdb"`, but only DuckDB executes DuckDB SQL — Polars'
+> SQL frontend rejects interval syntax and several functions DuckDB accepts.
+> When an accommodation is for one engine rather than one output grammar,
+> register it in `ENGINE_QUERY_NORMALIZERS`, which is keyed by engine class.
+
 ---
 
 ## Categories of accommodation

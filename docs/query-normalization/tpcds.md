@@ -3,7 +3,7 @@
 See [Query Normalization](README.md) for the shared pipeline and rule contract.
 
 - **Module:** `src/lakebench/benchmarks/tpcds/_query_normalizers.py`
-- **Normalizer version:** `9`
+- **Normalizer version:** `11`
 - **Queries:** 103 (99 templates; q14, q23, q24, q39 each yield two parts)
 
 ---
@@ -80,6 +80,7 @@ so it cannot misfire on numeric arithmetic.
 |---|---|---|---|
 | `_normalize_tsql_sample_stddev` | q17, q29, q35, q39a, q39b | tsql / fabric | spelling |
 | `_normalize_q22_inventory_average` | q22 | tsql / fabric | type widening |
+| `_normalize_q9_wide_counts` | q9 | tsql / fabric | type widening |
 | `_normalize_q97` | q97 | all | type widening |
 
 **`_normalize_tsql_sample_stddev`** maps `StddevSamp` → `Stddev`. T-SQL's
@@ -95,6 +96,20 @@ overflows.
 
 > Widening the **input**, not casting the **output**, is what matters — the
 > overflow occurs inside the aggregate.
+
+**`_normalize_q9_wide_counts`** marks each of q9's five scalar-subquery
+`COUNT(*)` bucket counters with `big_int`, rendering `COUNT_BIG(*)` for
+T-SQL/Fabric while Spark, DuckDB, and MySQL keep `COUNT(*)`. T-SQL's `COUNT`
+returns `INT`. Each bucket counts `store_sales` filtered only by an
+`ss_quantity` range — roughly a fifth of the fact table, about 5.8 billion rows
+at SF10000 — so the counter overflows before any result is produced. The same
+`big_int` mechanism handles TPC-H q1.
+
+> q88, q90, and q96 also count ungrouped over a fact table but bound their
+> counts with selective dimension joins (a specific store, a half-hour window,
+> household demographics), keeping them far below the 32-bit limit. They are
+> deliberately left unwidened; `test_other_ungrouped_fact_counts_are_left_alone`
+> pins that decision.
 
 **`_normalize_q97`** widens the `THEN` and `ELSE` values of q97's three
 `SUM(CASE ... END)` expressions to `BIGINT`, so the summed values are already
@@ -131,13 +146,21 @@ affects nothing but parseability.
 
 | Engine | Query | Rule | Category |
 |---|---|---|---|
+| Polars | `*` | `fold_constant_date_arithmetic` | spelling |
 | Sail | q12 | `_sail_q12_safe_denominator` | lowering |
 
-Sail evaluates q12's `revenueratio` denominator — a windowed
-`SUM(SUM(ws_ext_sales_price))` — in a way that raises a division-by-zero at
-runtime where other engines return NULL. The rule wraps the denominator in
-`NULLIF(..., 0)`, restoring NULL. Registered **only** for Sail: divide-by-zero
-protection is a functional change and is not applied where it is not needed.
+**`fold_constant_date_arithmetic`** evaluates constant date offsets at compile
+time, because Polars' SQL frontend cannot parse interval syntax. It is shared
+with TPC-H and fully documented on
+[the TPC-H page](tpch.md#polars-constant-date-folding). q72 is deliberately left
+alone: its offset is applied to a column, so there is nothing to fold.
+
+**`_sail_q12_safe_denominator`** — Sail evaluates q12's `revenueratio`
+denominator — a windowed `SUM(SUM(ws_ext_sales_price))` — in a way that raises a
+division-by-zero at runtime where other engines return NULL. The rule wraps the
+denominator in `NULLIF(..., 0)`, restoring NULL. Registered **only** for Sail:
+divide-by-zero protection is a functional change and is not applied where it is
+not needed.
 
 ---
 
