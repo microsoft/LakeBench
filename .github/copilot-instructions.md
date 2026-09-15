@@ -112,6 +112,11 @@ benchmark.run()
 
 ## Query Resolution Strategy
 
+Per-benchmark rule inventories and rationale live in `docs/query-normalization/`
+(`README.md` for the shared pipeline, plus `tpch.md`, `tpcds.md`,
+`clickbench.md`). Update the relevant page whenever rules change. The
+invariants below must hold regardless.
+
 TPC-H and TPC-DS always load immutable generated ANSI from
 `resources/queries/canonical/sf<scale>/q*.sql`. SQL-file overrides are not searched.
 Both use SQLGlot's built-in `tsql` reader through `parse_tpc_ansi_statements`,
@@ -129,27 +134,33 @@ TPC-H q15 lowering), `QUERY_NORMALIZERS`, `ENGINE_QUERY_NORMALIZERS`, then direc
 AST qualification and target rendering. Each registry applies `"*"` before the
 query ID; engine registries are keyed by class and inherited base-first.
 Rule context.dialect is the source dialect; context.target_dialect is the
-engine's output dialect. TPC-DS sample-standard-deviation and q22 AVG input
-widening rules target tsql/fabric only. q1 repairs the unquoted sr_fee casing
-against the DDL; q72 lowers its date-column + 5 expression to DateAdd.
-Do not normalize identifier case before case-sensitive binding checks.
-Affected queries register shared `normalize_date_interval_arithmetic` to lower
-DATE casts +/- whole DAY/MONTH/YEAR intervals to portable `DateAdd` nodes.
+engine's output dialect. Do not normalize identifier case before case-sensitive
+binding checks.
+Shared `normalize_date_interval_arithmetic` lowers DATE casts +/- whole
+DAY/MONTH/YEAR intervals to portable `DateAdd` nodes.
 Subtraction uses a negative amount with an `exp.Neg` node, not `DateSub`
 (unsupported T-SQL output) or a negative numeric Literal (invalid DuckDB output).
 Generated dates, magnitudes, and operation directions must be preserved.
-TPC-H q1 also marks its count_order COUNT(*) node with `big_int=True` through
-a registered rule, rendering COUNT_BIG(*) for T-SQL while retaining COUNT(*)
-for Spark, DuckDB, and MySQL. Do not cast the COUNT result after aggregation:
-that cannot prevent INT overflow inside COUNT.
-Neither benchmark registers join normalization by default: WHERE join predicates
-remain in place even if SQLGlot renders commas as CROSS JOIN. The shared
+Overflow fixes must widen the aggregate input, never cast its result: casting
+after aggregation cannot prevent INT overflow inside COUNT/SUM/AVG. AVG must
+widen to a real type; BIGINT or DECIMAL(38,0) stop the overflow but leave T-SQL
+truncating the average.
+Neither TPC benchmark registers join normalization by default: WHERE join
+predicates remain in place even if SQLGlot renders commas as CROSS JOIN. The shared
 join-normalization function is retained for explicit registration. Compatibility fixes must be
-registered structural rules, preserve generated substitutions, and document
-semantic accommodations. Per-query execution telemetry records applied rule IDs.
+registered structural rules, preserve generated substitutions, bump the module's
+`NORMALIZER_VERSION`, and document semantic accommodations on the benchmark's
+doc page. Per-query execution telemetry records applied rule IDs.
 
-ClickBench still resolves engine-specific SQL, then parent-engine SQL, then
-canonical Spark SQL with transpilation. Engine-specific DDL fallback is unchanged.
+ClickBench uses the same pipeline with the official ClickHouse query set as its
+immutable source: `resources/queries/canonical/q1..q43.sql` are the exact lines
+of upstream `clickhouse/queries.sql` at a pinned commit, one statement per file,
+parsed with SQLGlot's `clickhouse` reader. SQL-file overrides are not searched.
+`source_manifest.json` pins the commit, blob hash, and per-query hashes; never
+edit a canonical query, and regenerate the manifest if the pin moves.
+Do not emit OCTET_LENGTH for DuckDB: it is BLOB-only there, and upstream's own
+per-engine query sets use each engine's native `length`. Engine-specific DDL
+fallback is unchanged.
 
 Tables are automatically qualified with catalog and schema when applicable. To inspect the resolved query:
 

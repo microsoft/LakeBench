@@ -33,6 +33,7 @@ from lakebench.engines.duckdb import DuckDB
 from lakebench.engines.polars import Polars
 from lakebench.engines.sail import Sail
 from lakebench.engines.spark import Spark
+from tests.conftest import _uninitialized_engine
 
 CANONICAL_ROOT = (
     Path(__file__).parents[1] / "src" / "lakebench" / "benchmarks" / "tpch" / "resources" / "queries" / "canonical"
@@ -41,23 +42,6 @@ CANONICAL_ROOT = (
 
 def _sha256(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _uninitialized_engine(engine_class):
-    engine = engine_class.__new__(engine_class)
-    engine.version = "test"
-    engine.cost_per_vcore_hour = None
-    engine.cost_per_hour = None
-    engine.extended_engine_metadata = {}
-    engine.storage_options = {}
-    engine.schema_or_working_directory_uri = "file:///tmp/lakebench"
-    engine.runtime = "local_unknown"
-    engine.operating_system = "linux"
-    engine.catalog_name = None
-    engine.schema_name = None
-    engine.get_total_cores = lambda: 1
-    engine.get_compute_size = lambda: "test"
-    return engine
 
 
 def test_tpc_benchmarks_do_not_register_join_normalization():
@@ -321,19 +305,16 @@ def test_tpc_resolution_never_searches_engine_sql_files(benchmark_class, engine_
     benchmark._engine_query_resource_packages.assert_not_called()
 
 
-def test_clickbench_still_loads_engine_sql_overrides(tmp_path):
+@pytest.mark.parametrize("engine_class", [Daft, Sail, DuckDB])
+def test_clickbench_resolution_never_searches_engine_sql_files(engine_class):
     benchmark = ClickBench(
-        engine=_uninitialized_engine(Daft),
-        scenario_name="overrides",
+        engine=_uninitialized_engine(engine_class),
+        scenario_name="no-overrides",
         input_parquet_folder_uri="file:///tmp/clickbench",
     )
-    (tmp_path / "q1.sql").write_text("SELECT 987654 AS override_marker", encoding="utf-8")
-    benchmark._engine_query_resource_packages = Mock(return_value=("test.engine.queries",))
-    with pytest.MonkeyPatch.context() as monkeypatch:
-        monkeypatch.setattr("importlib.resources.path", lambda package, name: tmp_path / name)
-        query = benchmark._return_query_definition("q1")
-    assert "987654 AS override_marker" in query
-    benchmark._engine_query_resource_packages.assert_called_once()
+    benchmark._engine_query_resource_packages = Mock(side_effect=AssertionError("SQL override lookup"))
+    benchmark._return_query_definition("q1")
+    benchmark._engine_query_resource_packages.assert_not_called()
 
 
 @pytest.mark.parametrize("scale_factor", [1000, 10000])

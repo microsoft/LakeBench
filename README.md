@@ -336,46 +336,33 @@ benchmark.run()
 
 ## Managing Queries Over Various Dialects
 
-LakeBench uses SQLGlot to translate benchmark queries to each engine's dialect. TPC-H and TPC-DS start from immutable generated ANSI SQL; compatibility changes are registered AST rules, not alternate SQL files.
+LakeBench uses SQLGlot to translate benchmark queries to each engine's dialect. Every benchmark starts from an immutable upstream SQL source; compatibility changes are registered AST rules, not alternate SQL files.
+
+Each benchmark's full rule inventory — what each rule does, why it exists, and what it does and does not change — is documented on its own page:
+
+| Benchmark | Source of truth | Reader | Normalization rules |
+|---|---|---|---|
+| TPC-H | `qgen` ANSI output, SF1000 / SF10000, stream 0 | `tsql` | [docs/query-normalization/tpch.md](docs/query-normalization/tpch.md) |
+| TPC-DS | `dsqgen` ANSI output, SF1000 / SF10000, stream 0 | `tsql` | [docs/query-normalization/tpcds.md](docs/query-normalization/tpcds.md) |
+| ClickBench | Upstream `clickhouse/queries.sql`, pinned commit | `clickhouse` | [docs/query-normalization/clickbench.md](docs/query-normalization/clickbench.md) |
+
+See [docs/query-normalization/](docs/query-normalization/README.md) for the shared pipeline, the rule contract, and guidance on adding a rule.
 
 ### Query Resolution Strategy
 
-For **TPC-H and TPC-DS**, runtime compilation proceeds in this order:
+Runtime compilation proceeds in this order for every benchmark:
 
-1. Load the selected `resources/queries/canonical/sf<scale>/q*.sql` ANSI source and parse generator syntax.
-2. Apply `SOURCE_NORMALIZERS` to parsed statement bundles. TPC-H registers qgen row limits for `"*"` and q15's `CREATE VIEW` / `SELECT` / `DROP VIEW` to CTE lowering for `"q15"`.
-3. Apply `QUERY_NORMALIZERS`: shared `"*"` rules first, then rules for the query ID. Join normalization is not registered by default; WHERE join predicates remain in place even when SQLGlot renders comma joins as CROSS JOIN. The shared join-normalization function remains available for explicit registration.
+1. Load the canonical source and parse it with the benchmark's `CANONICAL_QUERY_DIALECT`.
+2. Apply `SOURCE_NORMALIZERS` to parsed statement bundles, for lowerings that must happen before the bundle is reduced to a single query.
+3. Apply `QUERY_NORMALIZERS`: shared `"*"` rules first, then rules for the query ID.
 4. Apply `ENGINE_QUERY_NORMALIZERS` registered for the engine class and its ancestors, base classes first. Each class uses the same `"*"`-then-query convention.
 5. Qualify catalog/schema references and render the AST directly to the engine's `SQLGLOT_DIALECT`, without an intermediate SQL serialization.
 
-Both TPC benchmarks use SQLGlot's **built-in `tsql` reader** for the generated
-ANSI syntax, with minimal generator-specific lexical adaptations. No custom
-dialect is defined, and the source files remain exact qgen/dsqgen output.
-The reader accepts dsqgen's TOP syntax and preserves typed division and COUNT,
-avoiding parser-induced FLOAT casts, NULLIF protections, and PostgreSQL-specific
-ordering CASE expressions in T-SQL output. Its default NULL ordering is first
-for ascending and last for descending; explicitly specified NULL ordering is
-preserved. This reader choice is independent of the target engine, which may
-use `spark`, `tsql`, `duckdb`, or another supported SQLGlot dialect.
+Join normalization is not registered by default for any benchmark; WHERE join predicates remain in place even when SQLGlot renders comma joins as CROSS JOIN. The shared join-normalization function remains available for explicit registration.
 
-Affected TPC queries register the shared `normalize_date_interval_arithmetic`
-rule to lower DATE-cast arithmetic with whole DAY/MONTH/YEAR intervals to
-portable `DateAdd` AST nodes. T-SQL renders these as `DATEADD`, including negative
-amounts for subtraction; Spark, DuckDB, and other targets render their native
-date arithmetic. Dates, interval magnitudes, and direction remain unchanged.
-The generated files are untouched. The rule rejects unsupported interval shapes:
-SQLGlot accepting ANSI `INTERVAL` under its T-SQL reader does not mean Fabric
-Warehouse can execute that syntax.
+Static TPC query sets currently cover SF1000 and SF10000. Other data scales log a warning and use SF1000 query substitutions; result metadata records the mismatch via `query_set_scale_matches_data`.
 
-TPC-H q1 also registers a wide-count rule: SQLGlot's `Count.big_int` metadata
-renders `COUNT_BIG(*) AS count_order` for T-SQL, avoiding the 2,147,483,647-row
-per-group limit of `COUNT(*)`. Spark, DuckDB, and MySQL-dialect output retains
-`COUNT(*)`. This is a result-type widening, not a change to which rows are counted;
-casting an already-overflowed `COUNT(*)` result to BIGINT would not fix the error.
-
-Static query sets currently cover SF1000 and SF10000. Other data scales log a warning and use SF1000 query substitutions; result metadata records the mismatch. Future runtime generation can supply a new ANSI statement bundle to the same pipeline.
-
-**Breaking change in v2:** TPC-H/TPC-DS engine, parent-engine, and third-party SQL-file overrides are no longer searched. Existing overrides must be migrated to registered structural rules. ClickBench retains engine/parent SQL-file fallback, and engine-specific DDL resolution is unchanged.
+**Breaking change in v2:** engine, parent-engine, and third-party SQL-file query overrides are no longer searched for any benchmark, including ClickBench. Existing overrides must be migrated to registered structural rules. Engine-specific DDL resolution is unchanged. ClickBench results on Fabric Warehouse are **not** comparable to runs predating this change — see [the ClickBench page](docs/query-normalization/clickbench.md#divergence-from-earlier-hand-written-overrides).
 
 ### SQLGlot Upgrade Guardrails
 
@@ -393,13 +380,9 @@ The 26.30.0-to-30.18.0 comparison found 472 identical outputs and 28 differences
 limited to equivalent NOT LIKE spelling and generated subquery alias names.
 Generated source hashes remain independently checked against their manifests.
 
-The upgrade does not make the existing compatibility rules redundant. Registered
-TPC-DS rules now fix STDDEV_SAMP rendering for T-SQL/Fabric, q72's DATE + integer
-expression, and q1's SR_FEE/sr_fee casing mismatch. q22 widens the integer input
-of AVG to BIGINT for T-SQL/Fabric to avoid overflow in the accumulator, preserving
-those engines' integer-average behavior. Spark, DuckDB, and MySQL retain their
-sample-standard-deviation and AVG expressions. The built-in Fabric dialect is
-a suitable Warehouse target, but does not replace these rules.
+The upgrade does not make the existing compatibility rules redundant. The
+built-in Fabric dialect is a suitable Warehouse target, but does not replace
+them — see the per-benchmark pages linked above for what each rule still covers.
 
 Case-sensitive binding checks intentionally bypass identifier normalization so
 they catch mismatches like SR_FEE versus the declared sr_fee column. Successful
@@ -425,6 +408,8 @@ TPCH.ENGINE_QUERY_NORMALIZERS = {
 
 Preserve generated literals and make AST rules idempotent. Current engine accommodations include Daft DOUBLE arithmetic casts in TPC-H q1/q8/q9/q14 and Sail's NULLIF denominator in TPC-DS q12. These are **semantic accommodations** (numeric precision and division-by-zero behavior), not merely syntax fixes. Applied rule identifiers are recorded per query in `execution_telemetry["query_normalization_rules"]`, alongside the benchmark's normalizer version in engine metadata. Successful transpilation alone does not establish specification equivalence or engine execution support.
 
+Full guidance on writing and registering a rule — including bumping `NORMALIZER_VERSION` and refreshing rendering fingerprints — is in [docs/query-normalization/](docs/query-normalization/README.md#adding-a-rule).
+
 ### Viewing Generated Queries
 
 To inspect the final query that will be executed for any engine:
@@ -439,6 +424,17 @@ All engines now receive the same selected TPC source substitutions, with compati
 
 # 📬 Feedback / Contributions
 Got ideas? Found a bug? Want to contribute a benchmark or engine wrapper? PRs and issues are welcome!
+
+
+# Licensing and Third-Party Material
+
+LakeBench is released under the MIT License (see [`LICENSE`](LICENSE)). It also redistributes material from third-party projects that remain under their own licenses and are **not** covered by MIT. These are itemized, with attribution and a description of modifications, in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
+
+Most notably:
+
+- **ClickBench** queries and schema come from [ClickHouse/ClickBench](https://github.com/ClickHouse/ClickBench) (Alexey Milovidov and the ClickHouse team, 2022), which is published under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). The queries are vendored verbatim from a pinned upstream commit; provenance and hashes are recorded in [`PROVENANCE.md`](src/lakebench/benchmarks/clickbench/resources/queries/canonical/PROVENANCE.md) and `source_manifest.json` alongside them. If the NonCommercial or ShareAlike terms matter for your use, review them before redistributing LakeBench or building on it.
+- **tpcgen-rs** is bundled as a prebuilt binary in platform wheels under Apache 2.0.
+- **TPC-H / TPC-DS** tools kits, templates, and generator executables are *not* redistributed; only generated query text and a reproducibility manifest are checked in. TPC-H and TPC-DS are trademarks of the [Transaction Processing Performance Council](https://www.tpc.org), and LakeBench results are not audited, endorsed, or comparable to published TPC results.
 
 
 # Acknowledgement of Other _LakeBench_ Projects
