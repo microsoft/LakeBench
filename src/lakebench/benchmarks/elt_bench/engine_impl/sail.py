@@ -50,6 +50,7 @@ class SailELTBench:
         seed = self.np.random.randint(1, high=1000, size=None, dtype=int)
         modulo = int(1 / percent)
 
+        # Preserve the TPC-DS NOT NULL contract through Sail's CASE projection.
         sampled_fact_data = self.engine.spark.sql(f"""
             SELECT 
                 s.s_store_id, 
@@ -58,7 +59,7 @@ class SailELTBench:
                     WHEN rand() > 0.5 THEN 
                         CONCAT('NEW_', CAST(new_uid_val AS STRING))
                     ELSE 
-                        c.c_customer_id
+                        COALESCE(c.c_customer_id, '')
                 END AS c_customer_id,
                 d.d_date AS sale_date,
                 ss.ss_quantity + FLOOR(rand() * 5 + 1) AS total_quantity,
