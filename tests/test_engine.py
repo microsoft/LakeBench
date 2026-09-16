@@ -1,6 +1,23 @@
+import inspect
+import pathlib
+import re
+import sys
+import types
+
 import pytest
 
-from lakebench.engines.base import BaseEngine
+from lakebench.engines import (
+    Daft,
+    DuckDB,
+    FabricDataWarehouse,
+    FabricSpark,
+    HDISpark,
+    Polars,
+    Sail,
+    Spark,
+    SynapseSpark,
+)
+from lakebench.engines.base import BaseEngine, MissingDependenciesError
 
 
 class _MinimalEngine(BaseEngine):
@@ -228,3 +245,149 @@ class TestSparkAnalyzeTable:
 
         with pytest.raises(TypeError, match="not a string"):
             engine.analyze_table("customer", columns="c_custkey")
+
+
+class _UnsatisfiableEngine(BaseEngine):
+    REQUIRED_MODULES = ("lakebench_missing_one", "lakebench_missing_two")
+    INSTALL_EXTRA = "pretend"
+
+
+class _SatisfiedEngine(BaseEngine):
+    REQUIRED_MODULES = ("json", "pathlib")
+    INSTALL_EXTRA = "pretend"
+
+
+class TestMissingDependencies:
+    def test_reports_only_the_modules_that_cannot_be_imported(self):
+        assert _UnsatisfiableEngine.missing_dependencies() == [
+            "lakebench_missing_one",
+            "lakebench_missing_two",
+        ]
+
+    def test_importable_modules_are_not_reported(self):
+        assert _SatisfiedEngine.missing_dependencies() == []
+
+    def test_engines_without_declared_modules_report_nothing(self):
+        assert BaseEngine.missing_dependencies() == []
+
+    def test_a_module_that_raises_on_lookup_counts_as_missing(self):
+        class _BadParentEngine(BaseEngine):
+            REQUIRED_MODULES = ("json.not_a_package.deeper",)
+
+        assert _BadParentEngine.missing_dependencies() == ["json.not_a_package.deeper"]
+
+
+class TestVerifyDependencies:
+    def test_satisfied_engine_does_not_raise(self):
+        _SatisfiedEngine.verify_dependencies()
+
+    def test_raises_missing_dependencies_error(self):
+        with pytest.raises(MissingDependenciesError):
+            _UnsatisfiableEngine.verify_dependencies()
+
+    def test_error_is_an_import_error(self):
+        assert issubclass(MissingDependenciesError, ImportError)
+
+    def test_message_names_engine_every_missing_module_and_the_extra(self):
+        with pytest.raises(MissingDependenciesError) as excinfo:
+            _UnsatisfiableEngine.verify_dependencies()
+
+        message = str(excinfo.value)
+        assert "_UnsatisfiableEngine" in message
+        assert "`lakebench_missing_one`" in message
+        assert "`lakebench_missing_two`" in message
+        assert "pip install lakebench[pretend]" in message
+
+    def test_message_is_singular_for_one_missing_module(self):
+        class _OneMissingEngine(BaseEngine):
+            REQUIRED_MODULES = ("lakebench_missing_one",)
+            INSTALL_EXTRA = "pretend"
+
+        with pytest.raises(MissingDependenciesError) as excinfo:
+            _OneMissingEngine.verify_dependencies()
+
+        message = str(excinfo.value)
+        assert "`lakebench_missing_one`, which is not installed" in message
+
+    def test_falls_back_to_a_plain_pip_hint_without_an_extra(self):
+        class _NoExtraEngine(BaseEngine):
+            REQUIRED_MODULES = ("lakebench_missing_one",)
+
+        with pytest.raises(MissingDependenciesError) as excinfo:
+            _NoExtraEngine.verify_dependencies()
+
+        assert "pip install lakebench_missing_one" in str(excinfo.value)
+
+    def test_init_verifies_before_doing_any_other_work(self):
+        with pytest.raises(MissingDependenciesError):
+            _UnsatisfiableEngine()
+
+
+class TestDeclaredEngineDependencies:
+    """Keeps each engine's declared modules and install hint honest against pyproject."""
+
+    ENGINES = (
+        Daft,
+        DuckDB,
+        FabricDataWarehouse,
+        FabricSpark,
+        HDISpark,
+        Polars,
+        Sail,
+        Spark,
+        SynapseSpark,
+    )
+
+    @staticmethod
+    def _extras():
+        tomllib = pytest.importorskip("tomllib")
+        pyproject = pathlib.Path(__file__).resolve().parents[1] / "pyproject.toml"
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        return data["project"]["optional-dependencies"]
+
+    @pytest.mark.parametrize("engine", ENGINES, ids=lambda engine: engine.__name__)
+    def test_engine_declares_its_dependencies(self, engine):
+        assert engine.REQUIRED_MODULES, f"{engine.__name__} declares no required modules"
+        assert engine.INSTALL_EXTRA, f"{engine.__name__} declares no install extra"
+
+    @pytest.mark.parametrize("engine", ENGINES, ids=lambda engine: engine.__name__)
+    def test_install_extra_exists(self, engine):
+        assert engine.INSTALL_EXTRA in self._extras()
+
+    @pytest.mark.parametrize("engine", ENGINES, ids=lambda engine: engine.__name__)
+    def test_every_required_module_is_installed_by_the_extra(self, engine):
+        requirements = self._extras()[engine.INSTALL_EXTRA]
+        distributions = {re.split(r"[^A-Za-z0-9._-]", req, 1)[0].lower().replace("-", "_") for req in requirements}
+
+        for module in engine.REQUIRED_MODULES:
+            assert module.lower() in distributions, (
+                f"{engine.__name__} requires `{module}` but lakebench[{engine.INSTALL_EXTRA}] does not install it"
+            )
+
+
+class TestFabricDataWarehouseOdbcDriver:
+    def test_missing_driver_is_reported(self, monkeypatch):
+        monkeypatch.setattr(FabricDataWarehouse, "REQUIRED_MODULES", ())
+        monkeypatch.setitem(sys.modules, "pyodbc", types.SimpleNamespace(drivers=lambda: ["SQLite3 ODBC Driver"]))
+
+        with pytest.raises(MissingDependenciesError) as excinfo:
+            FabricDataWarehouse.verify_dependencies()
+
+        message = str(excinfo.value)
+        assert FabricDataWarehouse._ODBC_DRIVER in message
+        assert "pip cannot supply it" in message
+
+    def test_present_driver_passes(self, monkeypatch):
+        monkeypatch.setattr(FabricDataWarehouse, "REQUIRED_MODULES", ())
+        monkeypatch.setitem(
+            sys.modules,
+            "pyodbc",
+            types.SimpleNamespace(drivers=lambda: [FabricDataWarehouse._ODBC_DRIVER]),
+        )
+
+        FabricDataWarehouse.verify_dependencies()
+
+    def test_connection_string_uses_the_verified_driver(self):
+        source = inspect.getsource(FabricDataWarehouse._create_connection)
+        assert "self._ODBC_DRIVER" in source
+        assert FabricDataWarehouse._ODBC_DRIVER not in source

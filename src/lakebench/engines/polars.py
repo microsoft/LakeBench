@@ -17,6 +17,12 @@ class Polars(BaseEngine):
     SUPPORTS_ONELAKE = True
     SUPPORTS_SCHEMA_PREP = False
     SUPPORTS_MOUNT_PATH = True
+    REQUIRED_MODULES = (
+        "polars",
+        "deltalake",
+        "pyarrow",
+    )
+    INSTALL_EXTRA = "polars"
 
     def __init__(
         self,

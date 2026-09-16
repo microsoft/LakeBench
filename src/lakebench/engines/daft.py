@@ -17,6 +17,12 @@ class Daft(BaseEngine):
     SUPPORTS_ONELAKE = False
     SUPPORTS_SCHEMA_PREP = False
     SUPPORTS_MOUNT_PATH = False
+    REQUIRED_MODULES = (
+        "daft",
+        "deltalake",
+        "pyarrow",
+    )
+    INSTALL_EXTRA = "daft"
 
     def __init__(self, schema_or_working_directory_uri: str, cost_per_vcore_hour: Optional[float] = None):
         """
