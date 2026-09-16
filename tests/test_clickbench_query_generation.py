@@ -97,7 +97,15 @@ def test_query_set_provenance_is_reported_as_engine_metadata():
 
 @pytest.mark.parametrize("dialect", RENDER_DIALECTS)
 def test_rendered_queries_match_recorded_fingerprints(dialect):
-    expected = json.loads(FIXTURE.read_text(encoding="utf-8"))[dialect]
+    fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    assert sqlglot.__version__ in fixture["versions"], (
+        "Review query-output differences before updating ClickBench rendering fingerprints."
+    )
+    expected = dict(fixture["sha256"][dialect])
+    for key, digest in fixture["overrides"].get(sqlglot.__version__, {}).items():
+        override_dialect, _, query_name = key.partition("/")
+        if override_dialect == dialect:
+            expected[query_name] = digest
     rendered = _rendered(Spark, dialect)
     for name in QUERY_NAMES:
         assert hashlib.sha256(rendered[name].encode("utf-8")).hexdigest() == expected[name], name

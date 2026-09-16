@@ -74,7 +74,12 @@ TPCDS_SCHEMA = load_query_schema(
 
 
 def _sha256(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    """Hashes the canonical LF bytes, so a CRLF checkout cannot fake a mismatch.
+
+    `.gitattributes` pins these files to LF; this normalization is a safety net
+    for worktrees created before that pin (or by tools that ignore it).
+    """
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def _uninitialized_engine(engine_class):

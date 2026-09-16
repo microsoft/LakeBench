@@ -13,10 +13,17 @@ from sqlglot.optimizer.qualify import qualify
 from sqlglot.optimizer.scope import Scope, build_scope
 
 
+def write_text_lf(path: Path, content: str) -> None:
+    """Writes UTF-8 with LF endings on every platform.
+
+    ``Path.write_text(newline=...)`` is Python 3.10+, but this project supports 3.8+.
+    """
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(content)
+
+
 def parse_arguments() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Create formatted TPC-DS canonical Spark SQL with explicit joins."
-    )
+    parser = argparse.ArgumentParser(description="Create formatted TPC-DS canonical Spark SQL with explicit joins.")
     parser.add_argument("--review-dir", type=Path, required=True)
     parser.add_argument("--ddl", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -30,8 +37,7 @@ def load_schema(ddl_path: Path) -> Dict[str, Dict[str, str]]:
             continue
         table_name = statement.this.this.name
         schema[table_name] = {
-            column.this.name: column.args["kind"].sql(dialect="spark")
-            for column in statement.this.expressions
+            column.this.name: column.args["kind"].sql(dialect="spark") for column in statement.this.expressions
         }
     if not schema:
         raise RuntimeError(f"No table definitions found in DDL: {ddl_path}")
@@ -58,9 +64,7 @@ def scope_aliases(scope: Scope) -> List[str]:
     from_ = select.args.get("from_") or select.args.get("from")
     if not from_:
         return []
-    return [from_.this.alias_or_name] + [
-        join.this.alias_or_name for join in select.args.get("joins") or []
-    ]
+    return [from_.this.alias_or_name] + [join.this.alias_or_name for join in select.args.get("joins") or []]
 
 
 def paired_scopes(
@@ -112,15 +116,9 @@ def convert_scope_joins(original_scope: Scope, qualified_scope: Scope) -> int:
     join_predicates = defaultdict(list)
     remaining_predicates = []
 
-    for original_predicate, qualified_predicate in zip(
-        original_predicates, qualified_predicates
-    ):
+    for original_predicate, qualified_predicate in zip(original_predicates, qualified_predicates):
         referenced_aliases = exp.column_table_names(qualified_predicate)
-        positions = {
-            alias_positions[alias]
-            for alias in referenced_aliases
-            if alias in alias_positions
-        }
+        positions = {alias_positions[alias] for alias in referenced_aliases if alias in alias_positions}
         target_position = max(positions) if positions else 0
         target_join_index = target_position - 1
         target_join = joins[target_join_index] if target_join_index >= 0 else None
@@ -144,10 +142,7 @@ def convert_scope_joins(original_scope: Scope, qualified_scope: Scope) -> int:
         if predicates:
             join.set("on", combine_conjunctions(predicates))
             join.set("kind", None)
-        elif not any(
-            join.args.get(attribute)
-            for attribute in ("on", "side", "kind", "using", "method")
-        ):
+        elif not any(join.args.get(attribute) for attribute in ("on", "side", "kind", "using", "method")):
             join.set("kind", "CROSS")
 
     remaining_condition = combine_conjunctions(remaining_predicates)
@@ -212,19 +207,12 @@ def implicit_join_count(expression: exp.Expression) -> int:
     return sum(
         1
         for join in expression.find_all(exp.Join)
-        if not any(
-            join.args.get(attribute)
-            for attribute in ("on", "side", "kind", "using", "method")
-        )
+        if not any(join.args.get(attribute) for attribute in ("on", "side", "kind", "using", "method"))
     )
 
 
 def cross_join_locations(expression: exp.Expression) -> Set[str]:
-    return {
-        join.this.alias_or_name
-        for join in expression.find_all(exp.Join)
-        if join.kind == "CROSS"
-    }
+    return {join.this.alias_or_name for join in expression.find_all(exp.Join) if join.kind == "CROSS"}
 
 
 def write_readme(
@@ -280,11 +268,7 @@ required by source relation order; q77 intentionally retains the generated `cs` 
 Each transformed query was reparsed as Spark SQL and compared with its generated
 source after normalizing only the location of inner-join predicates.
 """
-    (output_directory / "README.md").write_text(
-        readme,
-        encoding="utf-8",
-        newline="\n",
-    )
+    write_text_lf(output_directory / "README.md", readme)
 
 
 def main() -> None:
@@ -307,7 +291,7 @@ def main() -> None:
 
     schema = load_schema(args.ddl.resolve())
     output_directory.mkdir(parents=True)
-    (output_directory / "__init__.py").write_text("", encoding="utf-8", newline="\n")
+    write_text_lf(output_directory / "__init__.py", "")
 
     moved_predicate_count = 0
     cross_join_query_count = 0
@@ -325,11 +309,7 @@ def main() -> None:
             raise RuntimeError(f"Implicit join remains in {source_path.name}")
         if cross_join_locations(candidate):
             cross_join_query_count += 1
-        (output_directory / source_path.name).write_text(
-            candidate_sql,
-            encoding="utf-8",
-            newline="\n",
-        )
+        write_text_lf(output_directory / source_path.name, candidate_sql)
         moved_predicate_count += moved
 
     shutil.copy2(manifest_path, output_directory / "generation_manifest.json")

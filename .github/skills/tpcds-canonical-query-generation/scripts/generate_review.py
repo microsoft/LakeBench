@@ -88,11 +88,20 @@ def normalize_for_transpilation(sql: str) -> str:
     )
 
 
+def write_text_lf(path: Path, content: str) -> None:
+    """Writes UTF-8 with LF endings on every platform.
+
+    ``Path.write_text(newline=...)`` is Python 3.10+, but this project supports 3.8+.
+    """
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(content)
+
+
 def patch_ansi_dialect(path: Path) -> None:
     content = path.read_text(encoding="utf-8")
     if re.search(r"(?im)^\s*define\s+_END\s*=", content):
         return
-    path.write_text(content.rstrip() + "\n" + BEGIN_END_DEFINITIONS + "\n", encoding="utf-8", newline="\n")
+    write_text_lf(path, content.rstrip() + "\n" + BEGIN_END_DEFINITIONS + "\n")
 
 
 def windows_to_wsl(path: Path) -> str:
@@ -286,13 +295,13 @@ def main() -> None:
             query_name = f"q{query_number}{suffix}"
             ansi_sql = statement.rstrip() + "\n"
             ansi_path = ansi_directory / f"{query_name}.sql"
-            ansi_path.write_text(ansi_sql, encoding="utf-8", newline="\n")
+            write_text_lf(ansi_path, ansi_sql)
 
             expression = sqlglot.parse_one(normalize_for_transpilation(ansi_sql), read="tsql")
             spark_sql = expression.sql(dialect="spark", pretty=True, normalize=False).rstrip() + "\n"
             sqlglot.parse_one(spark_sql, read="spark")
             spark_path = spark_directory / f"{query_name}.sql"
-            spark_path.write_text(spark_sql, encoding="utf-8", newline="\n")
+            write_text_lf(spark_path, spark_sql)
 
             queries.append(
                 {
@@ -318,11 +327,7 @@ def main() -> None:
     }
     if len(queries) != 103:
         raise RuntimeError(f"Expected 103 query files, generated {len(queries)}")
-    (output_directory / "manifest.json").write_text(
-        json.dumps(manifest, indent=2) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
+    write_text_lf(output_directory / "manifest.json", json.dumps(manifest, indent=2) + "\n")
     print(f"Generated 103 ANSI and 103 Spark-transpiled queries in {output_directory}")
 
 

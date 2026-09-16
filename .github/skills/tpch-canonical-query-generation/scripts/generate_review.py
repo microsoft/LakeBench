@@ -11,6 +11,24 @@ from typing import Dict, List, Optional, Tuple
 QUERY_NUMBERS = tuple(range(1, 23))
 
 
+def write_text_lf(path: Path, content: str) -> None:
+    """Writes UTF-8 with LF endings on every platform.
+
+    ``Path.write_text(newline=...)`` is Python 3.10+, but this project supports 3.8+.
+    """
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(content)
+
+
+def write_bytes_lf(path: Path, data: bytes) -> None:
+    """Writes generator output with LF endings so hashes are platform-independent.
+
+    A Windows ``qgen`` build emits CRLF, which would otherwise bake the host
+    platform into the committed provenance hashes.
+    """
+    path.write_bytes(data.replace(b"\r\n", b"\n"))
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as file:
@@ -41,9 +59,7 @@ def run_command(
             env=environment,
         )
     except subprocess.CalledProcessError as error:
-        details = [
-            f"Command failed with exit code {error.returncode}: {' '.join(command)}"
-        ]
+        details = [f"Command failed with exit code {error.returncode}: {' '.join(command)}"]
         if error.stdout:
             details.append(f"stdout:\n{error.stdout.decode(errors='replace').rstrip()}")
         if error.stderr:
@@ -126,9 +142,7 @@ def verify_version(qgen: Path, use_wsl: bool) -> str:
 
 
 def parse_arguments() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Generate exact ANSI TPC-H qgen queries for LakeBench."
-    )
+    parser = argparse.ArgumentParser(description="Generate exact ANSI TPC-H qgen queries for LakeBench.")
     parser.add_argument("--kit-path", type=Path, required=True)
     parser.add_argument("--qgen", type=Path, required=True)
     parser.add_argument("--scale-factor", type=int, required=True)
@@ -166,21 +180,23 @@ def main() -> None:
     ansi_directory.mkdir()
 
     stream_path = output_directory / "query_0.sql"
-    stream_path.write_bytes(
+    write_bytes_lf(
+        stream_path,
         run_qgen(
             qgen,
             dbgen_directory,
             args.scale_factor,
             args.rng_seed,
             args.wsl,
-        )
+        ),
     )
 
     queries = []
     for query_number in QUERY_NUMBERS:
         query_name = f"q{query_number}"
         query_path = ansi_directory / f"{query_name}.sql"
-        query_path.write_bytes(
+        write_bytes_lf(
+            query_path,
             run_qgen(
                 qgen,
                 dbgen_directory,
@@ -188,7 +204,7 @@ def main() -> None:
                 args.rng_seed,
                 args.wsl,
                 query_number,
-            )
+            ),
         )
         template_path = query_directory / f"{query_number}.sql"
         queries.append(
@@ -213,11 +229,7 @@ def main() -> None:
         "query_count": len(queries),
         "queries": queries,
     }
-    (output_directory / "manifest.json").write_text(
-        json.dumps(manifest, indent=2) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
+    write_text_lf(output_directory / "manifest.json", json.dumps(manifest, indent=2) + "\n")
     print(f"Generated 22 ANSI queries in {output_directory}")
 
 

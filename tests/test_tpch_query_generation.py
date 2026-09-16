@@ -41,7 +41,12 @@ CANONICAL_ROOT = (
 
 
 def _sha256(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    """Hashes the canonical LF bytes, so a CRLF checkout cannot fake a mismatch.
+
+    `.gitattributes` pins these files to LF; this normalization is a safety net
+    for worktrees created before that pin (or by tools that ignore it).
+    """
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def test_tpc_benchmarks_do_not_register_join_normalization():
