@@ -1,3 +1,4 @@
+import json
 from typing import List, Literal, Optional, Union
 
 from ...engines.base import BaseEngine
@@ -7,6 +8,10 @@ from ...engines.polars import Polars
 from ...engines.sail import Sail
 from ...engines.spark import Spark
 from .._load_and_query import _LoadAndQuery
+from ._query_normalizers import NORMALIZER_VERSION
+from ._query_normalizers import (
+    QUERY_NORMALIZERS as CLICKBENCH_QUERY_NORMALIZERS,
+)
 from .engine_impl.daft import DaftClickBench
 from .engine_impl.duckdb import DuckDBClickBench
 from .engine_impl.polars import PolarsClickBench
@@ -43,8 +48,8 @@ class ClickBench(_LoadAndQuery):
     run(mode='power_test')
         Runs the benchmark in the specified mode.
         Supported modes are:
-            - 'load': Sequentially executes loading the 24 tables.
-            - 'query': Sequentially executes the 99 queries.
+            - 'load': Sequentially executes loading the `hits` table.
+            - 'query': Sequentially executes the 43 queries.
             - 'power_test': Executes the query test without loading data.
             - 'load_and_query': Executes the load test followed by the query test.
     _run_load_test()
@@ -63,6 +68,9 @@ class ClickBench(_LoadAndQuery):
         Daft: DaftClickBench,
     }
     BENCHMARK_NAME = "ClickBench"
+    CANONICAL_QUERY_DIALECT = "clickhouse"
+    ALLOW_QUERY_OVERRIDES = False
+    QUERY_NORMALIZERS = CLICKBENCH_QUERY_NORMALIZERS
     TABLE_REGISTRY = ["hits"]
     QUERY_REGISTRY = [
         "q1",
@@ -110,7 +118,9 @@ class ClickBench(_LoadAndQuery):
         "q43",
     ]
     DDL_FILE_NAME = "ddl.sql"
-    VERSION = "UNKNOWN"
+    QUERY_SET_MANIFEST_FILE_NAME = "source_manifest.json"
+    # The upstream query set is unversioned; the pinned commit identifies it.
+    VERSION = "clickhouse/queries.sql@314839c"
 
     def __init__(
         self,
@@ -139,4 +149,23 @@ class ClickBench(_LoadAndQuery):
             ddl_override_dialect=ddl_override_dialect,
             optimize=optimize,
             analyze=analyze,
+        )
+
+    def _configure_query_resources(self) -> None:
+        import importlib.resources
+
+        with importlib.resources.path(
+            self._canonical_query_resource_package(self.__class__.__name__.lower()),
+            self.QUERY_SET_MANIFEST_FILE_NAME,
+        ) as manifest_path:
+            with open(manifest_path, "r") as manifest_file:
+                manifest = json.load(manifest_file)
+
+        self.engine.extended_engine_metadata.update(
+            {
+                "query_set_source": manifest["upstream_url"],
+                "query_set_revision": manifest["upstream_commit"],
+                "query_set_license": manifest["upstream_license"],
+                "query_set_normalizer_version": NORMALIZER_VERSION,
+            }
         )
