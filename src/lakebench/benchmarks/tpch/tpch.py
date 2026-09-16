@@ -40,8 +40,9 @@ class TPCH(_LoadAndQuery):
         The name of the benchmark scenario.
     query_list : list of str, optional
         List of queries to execute. Use '*' or omit this parameter to run query stream 0.
-    input_parquet_folder_uri : str, optional
-        Path to the input parquet files. Must be the root directory containing a folder named after
+    input_folder_uri : str, optional
+        Path to the input files, also accepted as ``input_parquet_folder_uri``.
+        Must be the root directory containing a folder named after
         each table in TABLE_REGISTRY. When ``input_format="native"`` this points at the generator's
         pipe-delimited ``.tbl`` output instead, in the same per-table folder layout.
     input_format : {"parquet", "native"}, default="parquet"

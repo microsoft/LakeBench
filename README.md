@@ -266,7 +266,7 @@ benchmark = TPCH(
     engine=Polars(schema_or_working_directory_uri='...'),
     scenario_name='native-load',
     scale_factor=1,
-    input_parquet_folder_uri='/lakehouse/default/Files/tpch_sf1_native',
+    input_folder_uri='/lakehouse/default/Files/tpch_sf1_native',
     input_format="native",
 )
 benchmark.run(mode='load_and_query')
@@ -305,6 +305,13 @@ _Notes:_
   does not accept `--num-threads`, so that option is ignored for TPC-DS native
   generation only.
 
+#### Naming the Input Location
+
+Every benchmark accepts the input location as either `input_folder_uri` or
+`input_parquet_folder_uri`. They are aliases for the same value; passing both
+with different values raises. `input_folder_uri` is preferred because the input
+is not necessarily Parquet, but the original name remains fully supported.
+
 #### Is BYO Data Supported?If you want to use your own TPC-DS, TPC-H, or ClickBench Parquet datasets, that is fine and encouraged as long as they are to specification. LakeBench keeps the canonical TPC-DS schema as its table and query contract, but automatically corrects these recognized legacy input names while loading Parquet:
 
 | Benchmark | Table | Legacy input name | Canonical LakeBench name |
@@ -325,7 +332,7 @@ TPC-H and TPC-DS benchmarks can include statistics generation in the measured lo
 benchmark = TPCH(
     engine=engine,
     scenario_name="sf10",
-    input_parquet_folder_uri="abfss://...",
+    input_folder_uri="abfss://...",
     analyze="selective",
 )
 ```
@@ -365,7 +372,7 @@ benchmark = ELTBench(
     engine=engine,
     scenario_name="sf10",
     mode="light",
-    input_parquet_folder_uri="abfss://...",
+    input_folder_uri="abfss://...",
     save_results=True,
     result_table_uri="abfss://..."
 )
@@ -388,7 +395,7 @@ benchmark = ELTBench(
     engine=engine,
     scenario_name="sf10",
     mode="light",
-    input_parquet_folder_uri="abfss://...",
+    input_folder_uri="abfss://...",
     save_results=True,
     result_table_uri="abfss://..."
 )

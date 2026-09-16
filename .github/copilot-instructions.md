@@ -241,6 +241,10 @@ engine raises.
 - **`extended_engine_metadata`** on `BaseEngine` is the right place to attach runtime-specific metadata that ends up in the `engine_properties` MAP column of results.
 - **TPC-DS / TPC-H spec compliance**: LakeBench intentionally diverges from `spark-sql-perf` to follow the official specs (see `customer.c_last_review_date_sk` and `store.s_tax_percentage` fixes in README).
 - **New benchmarks** should subclass `BaseBenchmark`, define `RESULT_SCHEMA`, `BENCHMARK_IMPL_REGISTRY`, `VERSION`, and implement `run()`.
+- **Input location** is accepted as either `input_folder_uri` (preferred) or
+  `input_parquet_folder_uri` (alias). Constructors resolve the pair through
+  `benchmarks/base.py::resolve_input_folder_uri`, which rejects conflicting
+  values; `BaseBenchmark` then sets both attributes to the resolved value.
 
 ## Native TPC Generator Format
 

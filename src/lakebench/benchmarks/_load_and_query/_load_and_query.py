@@ -14,7 +14,7 @@ from ...engines.sail import Sail
 from ...engines.spark import Spark
 from ...utils.query_utils import get_table_name_from_ddl, transpile_and_qualify_query
 from ...utils.schema_utils import table_schemas_from_ddl
-from ..base import BaseBenchmark
+from ..base import BaseBenchmark, resolve_input_folder_uri
 from ._query_normalizers import (
     EngineNormalizerRegistry,
     QueryNormalizerContext,
@@ -212,7 +212,9 @@ class _LoadAndQuery(BaseBenchmark):
         optimize: bool = False,
         analyze: Union[bool, Literal["none", "full", "selective"]] = "none",
         input_format: str = "parquet",
+        input_folder_uri: Optional[str] = None,
     ):
+        input_parquet_folder_uri = resolve_input_folder_uri(input_parquet_folder_uri, input_folder_uri)
         if ddl_variant is not None and ddl_override is not None:
             raise ValueError("'ddl_variant' and 'ddl_override' are mutually exclusive. Provide one or neither.")
         if input_format not in self.INPUT_FORMATS:
@@ -302,8 +304,6 @@ class _LoadAndQuery(BaseBenchmark):
 
         self.engine = engine
         self.scenario_name = scenario_name
-
-        self.input_parquet_folder_uri = input_parquet_folder_uri
 
         self.benchmark_impl = self.benchmark_impl_class(self.engine) if self.benchmark_impl_class is not None else None
 
