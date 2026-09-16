@@ -11,15 +11,15 @@ from typing import Dict, List, Optional, Tuple
 
 from sqlglot import exp
 
+from ...engines.fabric_data_warehouse import FabricDataWarehouse
 from .._load_and_query._query_normalizers import (
+    EngineNormalizerRegistry,
     QueryNormalizer,
     QueryNormalizerContext,
 )
 
-NORMALIZER_VERSION = "1"
+NORMALIZER_VERSION = "2"
 
-# Dialects whose renderer emits the SQL Server grammar.
-_TSQL_TARGETS = frozenset({"tsql", "fabric"})
 # Dialects whose replacement strings use Java-style group references.
 _DOLLAR_BACKREFERENCE_TARGETS = frozenset({"spark", "databricks", "mysql"})
 
@@ -34,10 +34,6 @@ _INTEGER_TYPES = frozenset(
 
 _Q29_PATTERN = "^https?://(?:www\\.)?([^/]+)/.*$"
 _BINARY_COLLATION = "Latin1_General_100_BIN2_UTF8"
-
-
-def _is_tsql(context: QueryNormalizerContext) -> bool:
-    return (context.target_dialect or "") in _TSQL_TARGETS
 
 
 def _column_type(column: exp.Column, context: QueryNormalizerContext) -> Optional[str]:
@@ -63,8 +59,6 @@ def _projection_aliases(select: exp.Select) -> Dict[str, exp.Expression]:
 
 def _expand_group_by_aliases(expression: exp.Expression, context: QueryNormalizerContext) -> None:
     """Replaces SELECT aliases used as grouping keys, which T-SQL does not resolve."""
-    if not _is_tsql(context):
-        return
     for select in _selects(expression):
         group = select.args.get("group")
         if group is None:
@@ -83,8 +77,6 @@ def _expand_group_by_aliases(expression: exp.Expression, context: QueryNormalize
 
 def _resolve_positional_group_by(expression: exp.Expression, context: QueryNormalizerContext) -> None:
     """Resolves ClickHouse positional grouping keys, which T-SQL does not accept."""
-    if not _is_tsql(context):
-        return
     for select in _selects(expression):
         group = select.args.get("group")
         if group is None:
@@ -139,8 +131,6 @@ def _is_integer_expression(node: exp.Expression, context: QueryNormalizerContext
 
 def _widen_integer_aggregates(expression: exp.Expression, context: QueryNormalizerContext) -> None:
     """Widens integer SUM and AVG inputs, which T-SQL otherwise overflows or truncates."""
-    if not _is_tsql(context):
-        return
     for aggregate in list(expression.find_all(exp.Sum, exp.Avg)):
         argument = aggregate.this
         if argument is None or isinstance(argument, exp.Cast):
@@ -246,9 +236,8 @@ def _lower_q29_referer(referer: exp.Expression) -> exp.Expression:
     )
 
 
-def _normalize_q29_host_extraction(expression: exp.Expression, context: QueryNormalizerContext) -> None:
-    """Re-expresses q29's host extraction for targets that differ on regex support."""
-    target = context.target_dialect or ""
+def _q29_replacements(expression: exp.Expression, context: QueryNormalizerContext) -> List[exp.RegexpReplace]:
+    """Returns q29's host-extraction calls after checking the pattern is unchanged."""
     replacements = list(expression.find_all(exp.RegexpReplace))
     if not replacements:
         raise ValueError(f"Expected REGEXP_REPLACE in {context.query_name}.")
@@ -256,23 +245,44 @@ def _normalize_q29_host_extraction(expression: exp.Expression, context: QueryNor
         pattern = replacement.expression
         if not isinstance(pattern, exp.Literal) or pattern.this != _Q29_PATTERN:
             raise ValueError(f"Unexpected q29 pattern: {pattern}.")
-        if target in _TSQL_TARGETS:
-            # Fabric Warehouse does not expose REGEXP_REPLACE in its T-SQL
-            # surface area, so the fixed pattern is lowered to native string
-            # operations instead of substituting a different workload.
-            replacement.replace(_lower_q29_referer(replacement.this))
-        elif target in _DOLLAR_BACKREFERENCE_TARGETS:
+    return replacements
+
+
+def _normalize_q29_backreference(expression: exp.Expression, context: QueryNormalizerContext) -> None:
+    """Rewrites q29's capture-group reference for targets that read \\1 as a literal digit."""
+    for replacement in _q29_replacements(expression, context):
+        if (context.target_dialect or "") in _DOLLAR_BACKREFERENCE_TARGETS:
             # Java-style replacement strings read \1 as a literal digit.
             replacement.set("replacement", exp.Literal.string("$1"))
 
 
+def _lower_q29_host_extraction(expression: exp.Expression, context: QueryNormalizerContext) -> None:
+    """Lowers q29's host extraction to native string operations.
+
+    Fabric Data Warehouse does not expose REGEXP_REPLACE in its T-SQL surface area,
+    so the fixed pattern is re-expressed rather than substituting a different
+    workload.
+    """
+    for replacement in _q29_replacements(expression, context):
+        replacement.replace(_lower_q29_referer(replacement.this))
+
+
 QUERY_NORMALIZERS: Dict[str, Tuple[QueryNormalizer, ...]] = {
-    "*": (
-        _resolve_positional_group_by,
-        _expand_group_by_aliases,
-        _normalize_native_length,
-        _widen_integer_aggregates,
-    ),
-    "q29": (_normalize_q29_host_extraction,),
+    "*": (_normalize_native_length,),
+    "q29": (_normalize_q29_backreference,),
     "q43": (_normalize_minute_truncation,),
+}
+
+#: Accommodations for engines whose renderer emits the SQL Server grammar. They
+#: are registered per engine rather than gated on the target dialect so that a
+#: new T-SQL-family engine opts in explicitly.
+ENGINE_QUERY_NORMALIZERS: EngineNormalizerRegistry = {
+    FabricDataWarehouse: {
+        "*": (
+            _resolve_positional_group_by,
+            _expand_group_by_aliases,
+            _widen_integer_aggregates,
+        ),
+        "q29": (_lower_q29_host_extraction,),
+    },
 }

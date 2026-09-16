@@ -72,6 +72,7 @@ LakeBench supports multiple lakehouse compute engines. Each benchmark scenario d
 | Fabric Spark    |    ✅    |   ✅   |   ✅  |    ✅    |
 | Synapse Spark   |    ✅    |   ✅   |   ✅  |    ✅    |
 | HDInsight Spark |    ✅    |   ✅   |   ✅  |    ✅    |
+| Fabric Data Warehouse|    ✅    |   ✅   |   ✅  |    ✅    |
 | DuckDB          |    ✅    |   ✅   |   ✅  |    ✅    |
 | Polars          |    ✅    |   ⚠️   |   ⚠️  |    ⚠️    |
 | Daft            |    ✅    |   ⚠️   |   ⚠️  |    ⚠️    |
@@ -298,9 +299,7 @@ _Notes:_
   `compression_factor`) are rejected with `output_format="native"`. Automatic
   part counts use per-table native-to-uncompressed-Parquet size ratios measured
   at SF1.
-- Supported on the DuckDB, Polars, Daft, Sail, and Spark engines. Engines with
-  a benchmark-specific Parquet loader (such as Fabric Warehouse) reject
-  `input_format="native"` rather than silently loading Parquet.
+- Supported on the DuckDB, Polars, Daft, Sail, and Spark engines. Engines with a benchmark-specific Parquet loader (such as Fabric Data Warehouse) reject `input_format="native"` rather than silently loading Parquet.
 - `output_format="native"` requires `backend="rust"`. `tpcgen-cli tpcds dat`
   has no thread option at all, so `num_threads` is rejected for TPC-DS native
   generation; parallelism there comes from the part count. `tpcgen-cli tpch tbl`
@@ -384,6 +383,31 @@ benchmark.run()
 
 > _Note: The `spark_measure_telemetry` flag can be enabled to capture stage metrics in the results. The `sparkmeasure` install option must be used when `spark_measure_telemetry` is enabled (`%pip install lakebench[sparkmeasure]`). Additionally, the Spark-Measure JAR must be installed from Maven: https://mvnrepository.com/artifact/ch.cern.sparkmeasure/spark-measure_2.13/0.24_
 
+### Fabric Data Warehouse
+```python
+from lakebench.engines import FabricDataWarehouse
+from lakebench.benchmarks import TPCDS
+
+engine = FabricDataWarehouse(
+    warehouse_name="warehouse",
+    warehouse_server="xxxxx.datawarehouse.fabric.microsoft.com",
+    schema_name="dbo",
+)
+
+benchmark = TPCDS(
+    engine=engine,
+    scenario_name="sf1000",
+    scale_factor=1000,
+    input_folder_uri="abfss://...",
+    save_results=True,
+    result_table_uri="abfss://..."
+)
+
+benchmark.run()
+```
+
+> _Note: install with `pip install lakebench[fabric_data_warehouse]` and make sure Microsoft ODBC Driver 18 for SQL Server is available on the host. The engine authenticates with the notebook identity's Fabric token, so it must run inside a Fabric notebook.
+
 ### Polars
 ```python
 from lakebench.engines import Polars
@@ -434,7 +458,7 @@ Join normalization is not registered by default for any benchmark; WHERE join pr
 
 Static TPC query sets currently cover SF1000 and SF10000. Other data scales log a warning and use SF1000 query substitutions; result metadata records the mismatch via `query_set_scale_matches_data`.
 
-**Breaking change in v2:** engine, parent-engine, and third-party SQL-file query overrides are no longer searched for any benchmark, including ClickBench. Existing overrides must be migrated to registered structural rules. Engine-specific DDL resolution is unchanged. ClickBench results on Fabric Warehouse are **not** comparable to runs predating this change — see [the ClickBench page](docs/query-normalization/clickbench.md#divergence-from-earlier-hand-written-overrides).
+**Breaking change in v2:** engine, parent-engine, and third-party SQL-file query overrides are no longer searched for any benchmark, including ClickBench. Existing overrides must be migrated to registered structural rules. Engine-specific DDL resolution is unchanged.
 
 ### SQLGlot Upgrade Guardrails
 
@@ -443,14 +467,7 @@ because newer SQLGlot releases require Python 3.9+. The AST adapters support bot
 versions, including FROM/WITH argument names, DROP VIEW target lists, and GROUPING
 function nodes.
 
-`tests/test_tpc_sqlglot_compatibility.py` checks reviewed output fingerprints in
-`tests/fixtures/tpc_query_rendering.json` for all **750** TPC-H/TPC-DS renderings
-(both static scales, Spark, T-SQL, and Fabric, on both pinned SQLGlot versions).
-Review actual SQL differences before
-refreshing these fingerprints; do not regenerate them just to clear a failure.
-The 26.30.0-to-30.18.0 comparison found 472 identical outputs and 28 differences
-limited to equivalent NOT LIKE spelling and generated subquery alias names.
-Generated source hashes remain independently checked against their manifests.
+`tests/test_tpc_sqlglot_compatibility.py` checks reviewed output fingerprints in `tests/fixtures/tpc_query_rendering.json` for all **500** TPC-H/TPC-DS renderings (both static scales, Spark and Fabric, on both pinned SQLGlot versions). Each dialect is rendered through the engine that emits it, so engine-registered rules are part of what the fingerprints pin. Review actual SQL differences before refreshing these fingerprints; do not regenerate them just to clear a failure. The 26.30.0-to-30.18.0 comparison found 472 identical outputs and 28 differences limited to equivalent NOT LIKE spelling and generated subquery alias names. Generated source hashes remain independently checked against their manifests.
 
 The upgrade does not make the existing compatibility rules redundant. The
 built-in Fabric dialect is a suitable Warehouse target, but does not replace
@@ -464,10 +481,7 @@ grammar parsing alone does not establish Warehouse execution support.
 
 Registries live in each benchmark's `_query_normalizers.py` and are bound on the benchmark class. AST rules accept `(expression, context)`, modify the supplied copied AST, and return `None`. Source rules instead receive a mutable list of parsed statements; after source lowering, exactly one query must remain. Rules must validate expected shapes and raise explicitly rather than substitute another query.
 
-`context.dialect` is the source parser dialect; `context.target_dialect` is the
-engine's output dialect. Target-specific rules must inspect the latter. The
-runtime supplies it to both source and query rules; direct callers of
-`apply_query_normalizers` can pass `target_dialect` explicitly.
+`context.dialect` is the source parser dialect; `context.target_dialect` is the engine's output dialect. Prefer registering an engine-specific accommodation in `ENGINE_QUERY_NORMALIZERS` keyed by the engine class rather than gating a global rule on `context.target_dialect`: a dialect is a rendering target that several engines can share, so a dialect gate applies the fix to engines that never asked for it. Reserve `context.target_dialect` for rules that are genuinely a property of the renderer family rather than of one engine. The runtime supplies it to both source and query rules; direct callers of `apply_query_normalizers` can pass `target_dialect`, `engine_type`, and `engine_normalizers` explicitly.
 
 For example, an engine integration can extend the TPC-H engine registry:
 
@@ -478,7 +492,7 @@ TPCH.ENGINE_QUERY_NORMALIZERS = {
 }
 ```
 
-Preserve generated literals and make AST rules idempotent. Current engine accommodations include Daft DOUBLE arithmetic casts in TPC-H q1/q8/q9/q14 and Sail's NULLIF denominator in TPC-DS q12. These are **semantic accommodations** (numeric precision and division-by-zero behavior), not merely syntax fixes. Applied rule identifiers are recorded per query in `execution_telemetry["query_normalization_rules"]`, alongside the benchmark's normalizer version in engine metadata. Successful transpilation alone does not establish specification equivalence or engine execution support.
+Preserve generated literals and make AST rules idempotent. Current engine accommodations include Daft DOUBLE arithmetic casts in TPC-H q1/q8/q9/q14, Sail's NULLIF denominator in TPC-DS q12, and the Fabric Data Warehouse T-SQL accommodations for TPC-DS q17/q22/q29/q35/q39 and ClickBench grouping, aggregate widening, and q29 host extraction. These are **semantic accommodations** (numeric precision and division-by-zero behavior), not merely syntax fixes. Applied rule identifiers are recorded per query in `execution_telemetry["query_normalization_rules"]`, alongside the benchmark's normalizer version in engine metadata. Successful transpilation alone does not establish specification equivalence or engine execution support.
 
 Full guidance on writing and registering a rule — including bumping `NORMALIZER_VERSION` and refreshing rendering fingerprints — is in [docs/query-normalization/](docs/query-normalization/README.md#adding-a-rule).
 

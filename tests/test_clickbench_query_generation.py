@@ -14,6 +14,7 @@ from lakebench.benchmarks.clickbench._query_normalizers import (
 )
 from lakebench.engines.daft import Daft
 from lakebench.engines.duckdb import DuckDB
+from lakebench.engines.fabric_data_warehouse import FabricDataWarehouse
 from lakebench.engines.polars import Polars
 from lakebench.engines.sail import Sail
 from lakebench.engines.spark import Spark
@@ -30,7 +31,15 @@ CANONICAL_ROOT = (
     / "canonical"
 )
 FIXTURE = Path(__file__).parent / "fixtures" / "clickbench_query_rendering.json"
-RENDER_DIALECTS = ("spark", "tsql", "fabric", "duckdb", "mysql")
+#: Engine that actually emits each rendered dialect. ``None`` marks a dialect no engine
+#: targets today; those are rendered through a stand-in so the dialect-neutral rules stay
+#: covered across renderer families. Normalizers registered to an engine only fire for
+#: that engine, so ``fabric`` must be rendered through the engine that emits it.
+RENDER_TARGETS = {"spark": None, "fabric": FabricDataWarehouse, "duckdb": None, "mysql": None}
+RENDER_DIALECTS = tuple(RENDER_TARGETS)
+#: Dialects no engine-registered normalizer applies to, used to prove the warehouse
+#: accommodations stay off the engines that do not need them.
+UNNORMALIZED_DIALECTS = ("spark", "duckdb", "mysql")
 QUERY_NAMES = tuple(f"q{number}" for number in range(1, 44))
 
 
@@ -53,6 +62,12 @@ def _rendered(engine_class, dialect=None):
         input_parquet_folder_uri="file:///tmp/clickbench",
     )
     return {name: benchmark._return_query_definition(name) for name in QUERY_NAMES}
+
+
+def _rendered_as(dialect):
+    """Renders every query the way the engine that targets ``dialect`` would."""
+    engine_class = RENDER_TARGETS[dialect]
+    return _rendered(Spark, dialect) if engine_class is None else _rendered(engine_class)
 
 
 def test_canonical_sources_match_pinned_upstream_manifest():
@@ -106,7 +121,7 @@ def test_rendered_queries_match_recorded_fingerprints(dialect):
         override_dialect, _, query_name = key.partition("/")
         if override_dialect == dialect:
             expected[query_name] = digest
-    rendered = _rendered(Spark, dialect)
+    rendered = _rendered_as(dialect)
     for name in QUERY_NAMES:
         assert hashlib.sha256(rendered[name].encode("utf-8")).hexdigest() == expected[name], name
 
@@ -123,43 +138,42 @@ def test_every_query_renders_and_parses_for_each_supported_engine(engine_class):
 
 @pytest.mark.parametrize("dialect", RENDER_DIALECTS)
 def test_minute_truncation_is_preserved_for_every_target(dialect):
-    query = _rendered(Spark, dialect)["q43"].upper()
+    query = _rendered_as(dialect)["q43"].upper()
     assert "MINUTE" in query
     # A date-only truncation silently discards the requested precision.
     assert not re.search(r"\bTRUNC\(\s*EVENTTIME\s*,", query)
     assert not re.search(r"\bDATE\(\s*EVENTTIME\s*\)", query)
 
 
-@pytest.mark.parametrize("dialect", ["tsql", "fabric"])
-def test_tsql_grouping_keys_are_expressions_rather_than_aliases_or_positions(dialect):
-    rendered = _rendered(Spark, dialect)
+def test_warehouse_grouping_keys_are_expressions_rather_than_aliases_or_positions():
+    rendered = _rendered_as("fabric")
 
-    grouped = sqlglot.parse_one(rendered["q35"], read=dialect)
-    assert [key.sql(dialect) for key in grouped.args["group"].expressions] == ["URL"]
-    assert grouped.expressions[0].sql(dialect) == "1"
+    grouped = sqlglot.parse_one(rendered["q35"], read="fabric")
+    assert [key.sql("fabric") for key in grouped.args["group"].expressions] == ["URL"]
+    assert grouped.expressions[0].sql("fabric") == "1"
 
     for name, aliases in (("q19", ["m"]), ("q29", ["k"]), ("q40", ["Src", "Dst"])):
-        group = sqlglot.parse_one(rendered[name], read=dialect).args["group"]
+        group = sqlglot.parse_one(rendered[name], read="fabric").args["group"]
         names = {key.name for key in group.find_all(exp.Column)}
         assert not names & set(aliases), (name, names)
 
 
-@pytest.mark.parametrize("dialect", ["spark", "duckdb", "mysql"])
+@pytest.mark.parametrize("dialect", UNNORMALIZED_DIALECTS)
 def test_other_targets_keep_the_upstream_grouping_form(dialect):
-    rendered = _rendered(Spark, dialect)
+    rendered = _rendered_as(dialect)
     assert "GROUP BY\n  1,\n  URL" in rendered["q35"]
     assert re.search(r"GROUP BY\s+k\b", rendered["q29"])
 
 
 @pytest.mark.parametrize("query_name", ["q3", "q4", "q10", "q28", "q31", "q32", "q33"])
-def test_tsql_average_widening_uses_a_real_type_rather_than_an_integer_one(query_name):
+def test_warehouse_average_widening_uses_a_real_type_rather_than_an_integer_one(query_name):
     """Keeps AVG returning a fraction, matching ClickHouse's Float64 result.
 
-    Earlier Fabric Warehouse overrides widened these with BIGINT or
+    Earlier Fabric Data Warehouse overrides widened these with BIGINT or
     DECIMAL(38, 0). That prevents the overflow but makes T-SQL truncate the
     average to a whole number, which silently diverges from the benchmark.
     """
-    for aggregate in sqlglot.parse_one(_rendered(Spark, "fabric")[query_name], read="fabric").find_all(exp.Avg):
+    for aggregate in sqlglot.parse_one(_rendered_as("fabric")[query_name], read="fabric").find_all(exp.Avg):
         assert isinstance(aggregate.this, exp.Cast), query_name
         assert aggregate.this.args["to"].this in exp.DataType.REAL_TYPES, query_name
 
@@ -168,17 +182,17 @@ def test_tsql_average_widening_uses_a_real_type_rather_than_an_integer_one(query
     ("query_name", "aggregate", "expected_type"),
     [("q30", "SUM", "BIGINT"), ("q3", "AVG", "FLOAT"), ("q4", "AVG", "FLOAT")],
 )
-def test_integer_aggregates_are_widened_only_for_tsql(query_name, aggregate, expected_type):
-    tsql = _rendered(Spark, "tsql")[query_name]
-    assert f"{aggregate}(CAST(" in tsql
-    assert f"AS {expected_type})" in tsql
-    for dialect in ("spark", "duckdb", "mysql"):
-        assert "CAST(" not in _rendered(Spark, dialect)[query_name]
+def test_integer_aggregates_are_widened_only_for_the_warehouse_engine(query_name, aggregate, expected_type):
+    warehouse = _rendered_as("fabric")[query_name]
+    assert f"{aggregate}(CAST(" in warehouse
+    assert f"AS {expected_type})" in warehouse
+    for dialect in UNNORMALIZED_DIALECTS:
+        assert "CAST(" not in _rendered_as(dialect)[query_name]
 
 
 def test_q30_widens_every_generated_sum_without_changing_its_addends():
-    tsql = sqlglot.parse_one(_rendered(Spark, "tsql")["q30"], read="tsql")
-    sums = list(tsql.find_all(exp.Sum))
+    warehouse = sqlglot.parse_one(_rendered_as("fabric")["q30"], read="fabric")
+    sums = list(warehouse.find_all(exp.Sum))
     assert len(sums) == 90
     addends = []
     for aggregate in sums:
@@ -194,14 +208,13 @@ def test_q30_widens_every_generated_sum_without_changing_its_addends():
     [("spark", "'$1'"), ("mysql", "'$1'"), ("duckdb", "'\\1'")],
 )
 def test_q29_uses_each_regex_engines_backreference_syntax(dialect, expected_backreference):
-    query = _rendered(Spark, dialect)["q29"]
+    query = _rendered_as(dialect)["q29"]
     assert "REGEXP_REPLACE" in query
     assert expected_backreference in query
 
 
-@pytest.mark.parametrize("dialect", ["tsql", "fabric"])
-def test_q29_is_lowered_to_native_string_operations_for_tsql(dialect):
-    query = _rendered(Spark, dialect)["q29"]
+def test_q29_is_lowered_to_native_string_operations_for_the_warehouse_engine():
+    query = _rendered_as("fabric")["q29"]
     assert "REGEXP_REPLACE" not in query
     assert "CHARINDEX" in query and "SUBSTRING" in query
     assert "Latin1_General_100_BIN2_UTF8" in query
@@ -209,8 +222,8 @@ def test_q29_is_lowered_to_native_string_operations_for_tsql(dialect):
 
 @pytest.mark.parametrize("dialect", RENDER_DIALECTS)
 def test_normalization_is_idempotent_and_preserves_generated_literals(dialect):
-    first = _rendered(Spark, dialect)
-    assert first == _rendered(Spark, dialect)
+    first = _rendered_as(dialect)
+    assert first == _rendered_as(dialect)
     for name in QUERY_NAMES:
         source = _canonical_bytes(name).decode("utf-8")
         for literal in re.findall(r"'([^']*)'", source):
@@ -221,7 +234,7 @@ def test_normalization_is_idempotent_and_preserves_generated_literals(dialect):
 
 def _q29_host_expression(dialect):
     """Extracts the lowered host expression, rewritten to run under DuckDB."""
-    expression = sqlglot.parse_one(_rendered(Spark, dialect)["q29"], read=dialect)
+    expression = sqlglot.parse_one(_rendered_as(dialect)["q29"], read=dialect)
     lowered = next(
         projection.this
         for projection in expression.expressions
@@ -236,18 +249,17 @@ def _q29_host_expression(dialect):
     return lowered
 
 
-def _evaluate_q29(duckdb, dialect, samples):
+def _evaluate_q29(duckdb, samples, dialect="fabric"):
     values = ", ".join("(NULL)" if sample is None else "('%s')" % sample.replace("'", "''") for sample in samples)
     return duckdb.sql(
         "SELECT referer, %s FROM (VALUES %s) AS t(referer)" % (_q29_host_expression(dialect).sql("duckdb"), values)
     ).fetchall()
 
 
-@pytest.mark.parametrize("dialect", ["tsql", "fabric"])
-def test_q29_lowering_strips_the_optional_www_prefix(dialect):
+def test_q29_lowering_strips_the_optional_www_prefix():
     """Guards the grouping key against a historical hand-written override.
 
-    An earlier Fabric Warehouse override tested ``CHARINDEX('www.', Referer) = 1``
+    An earlier Fabric Data Warehouse override tested ``CHARINDEX('www.', Referer) = 1``
     against the raw Referer. That is never true, because a matching Referer
     begins with its scheme, so the prefix was never stripped and ``www.host``
     and ``host`` were counted as separate groups. The source pattern treats them
@@ -256,14 +268,12 @@ def test_q29_lowering_strips_the_optional_www_prefix(dialect):
     duckdb = pytest.importorskip("duckdb")
     rows = _evaluate_q29(
         duckdb,
-        dialect,
         ["http://www.example.com/path", "https://www.example.com/a/b", "http://example.com/path"],
     )
     assert {host for _, host in rows} == {"example.com"}
 
 
-@pytest.mark.parametrize("dialect", ["tsql", "fabric"])
-def test_q29_lowering_matches_the_upstream_pattern(dialect):
+def test_q29_lowering_matches_the_upstream_pattern():
     """Executes the lowered host extraction against DuckDB and the source regex."""
     duckdb = pytest.importorskip("duckdb")
 
@@ -282,7 +292,7 @@ def test_q29_lowering_matches_the_upstream_pattern(dialect):
         "",
         None,
     ]
-    rows = _evaluate_q29(duckdb, dialect, samples)
+    rows = _evaluate_q29(duckdb, samples)
 
     # RE2 leaves `.` excluding newline and anchors `$` at end of text, so a line
     # feed in the path prevents a match and the original Referer is returned.

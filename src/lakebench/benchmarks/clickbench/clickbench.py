@@ -4,16 +4,21 @@ from typing import List, Literal, Optional, Union
 from ...engines.base import BaseEngine
 from ...engines.daft import Daft
 from ...engines.duckdb import DuckDB
+from ...engines.fabric_data_warehouse import FabricDataWarehouse
 from ...engines.polars import Polars
 from ...engines.sail import Sail
 from ...engines.spark import Spark
 from .._load_and_query import _LoadAndQuery
+from ._query_normalizers import (
+    ENGINE_QUERY_NORMALIZERS as CLICKBENCH_ENGINE_QUERY_NORMALIZERS,
+)
 from ._query_normalizers import NORMALIZER_VERSION
 from ._query_normalizers import (
     QUERY_NORMALIZERS as CLICKBENCH_QUERY_NORMALIZERS,
 )
 from .engine_impl.daft import DaftClickBench
 from .engine_impl.duckdb import DuckDBClickBench
+from .engine_impl.fabric_data_warehouse import FabricDataWarehouseClickBench
 from .engine_impl.polars import PolarsClickBench
 from .engine_impl.sail import SailClickBench
 from .engine_impl.spark import SparkClickBench
@@ -66,11 +71,13 @@ class ClickBench(_LoadAndQuery):
         Sail: SailClickBench,
         Polars: PolarsClickBench,
         Daft: DaftClickBench,
+        FabricDataWarehouse: FabricDataWarehouseClickBench,
     }
     BENCHMARK_NAME = "ClickBench"
     CANONICAL_QUERY_DIALECT = "clickhouse"
     ALLOW_QUERY_OVERRIDES = False
     QUERY_NORMALIZERS = CLICKBENCH_QUERY_NORMALIZERS
+    ENGINE_QUERY_NORMALIZERS = CLICKBENCH_ENGINE_QUERY_NORMALIZERS
     TABLE_REGISTRY = ["hits"]
     QUERY_REGISTRY = [
         "q1",

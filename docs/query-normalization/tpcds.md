@@ -76,34 +76,23 @@ so it cannot misfire on numeric arithmetic.
 
 ### Type widening
 
-| Rule | Queries | Target | Category |
+| Rule | Queries | Applies to | Category |
 |---|---|---|---|
-| `_normalize_tsql_sample_stddev` | q17, q29, q35, q39a, q39b | tsql / fabric | spelling |
-| `_normalize_q22_inventory_average` | q22 | tsql / fabric | type widening |
-| `_normalize_q9_wide_counts` | q9 | tsql / fabric | type widening |
+| `_normalize_tsql_sample_stddev` | q17, q29, q35, q39a, q39b | `FabricDataWarehouse` engine | spelling |
+| `_normalize_q22_inventory_average` | q22 | `FabricDataWarehouse` engine | type widening |
+| `_normalize_q9_wide_counts` | q9 | all (renders per dialect) | type widening |
 | `_normalize_q97` | q97 | all | type widening |
 
-**`_normalize_tsql_sample_stddev`** maps `StddevSamp` → `Stddev`. T-SQL's
-`STDEV` *is* the sample standard deviation (`STDEVP` is the population form), so
-this is a naming difference only — but SQLGlot renders `StddevSamp` as
-`STDDEV_SAMP`, which Fabric Warehouse does not have. Target-gated, so Spark and
-DuckDB keep `STDDEV_SAMP`.
+The first two are registered in `ENGINE_QUERY_NORMALIZERS` under `FabricDataWarehouse`, not gated on the target dialect. Both work around Fabric Data Warehouse's T-SQL surface area specifically, so an engine that renders `tsql` or `fabric` without those limits is unaffected, and a downstream integration can unregister them. See the [rule contract](README.md#rule-contract) for when to prefer engine registration over a target-dialect gate.
 
-**`_normalize_q22_inventory_average`** widens the input of q22's
-`AVG(inv_quantity_on_hand)` to `BIGINT` for T-SQL/Fabric. T-SQL evaluates
-`AVG` over an `INT` column using an `INT` accumulator; at SF1000 the running sum
-overflows.
+**`_normalize_tsql_sample_stddev`** maps `StddevSamp` → `Stddev`. T-SQL's `STDEV` *is* the sample standard deviation (`STDEVP` is the population form), so this is a naming difference only — but SQLGlot renders `StddevSamp` as `STDDEV_SAMP`, which Fabric Data Warehouse does not have. Registered to the engine, so Spark and DuckDB keep `STDDEV_SAMP`.
+
+**`_normalize_q22_inventory_average`** widens the input of q22's `AVG(inv_quantity_on_hand)` to `BIGINT` for Fabric Data Warehouse. T-SQL evaluates `AVG` over an `INT` column using an `INT` accumulator; at SF1000 the running sum overflows.
 
 > Widening the **input**, not casting the **output**, is what matters — the
 > overflow occurs inside the aggregate.
 
-**`_normalize_q9_wide_counts`** marks each of q9's five scalar-subquery
-`COUNT(*)` bucket counters with `big_int`, rendering `COUNT_BIG(*)` for
-T-SQL/Fabric while Spark, DuckDB, and MySQL keep `COUNT(*)`. T-SQL's `COUNT`
-returns `INT`. Each bucket counts `store_sales` filtered only by an
-`ss_quantity` range — roughly a fifth of the fact table, about 5.8 billion rows
-at SF10000 — so the counter overflows before any result is produced. The same
-`big_int` mechanism handles TPC-H q1.
+**`_normalize_q9_wide_counts`** marks each of q9's five scalar-subquery `COUNT(*)` bucket counters with `big_int`, rendering `COUNT_BIG(*)` for T-SQL/Fabric while Spark, DuckDB, and MySQL keep `COUNT(*)`. This one stays global: `big_int` is a portable AST flag that each dialect renders in its own way, so it is a renderer-family property rather than an engine workaround. T-SQL's `COUNT` returns `INT`. Each bucket counts `store_sales` filtered only by an `ss_quantity` range — roughly a fifth of the fact table, about 5.8 billion rows at SF10000 — so the counter overflows before any result is produced. The same `big_int` mechanism handles TPC-H q1.
 
 > q88, q90, and q96 also count ungrouped over a fact table but bound their
 > counts with selective dimension joins (a specific store, a half-hour window,
@@ -210,9 +199,7 @@ diverges from it, notably `customer.c_last_review_date_sk` and
 
 ## Verification
 
-- 103 queries × 2 scale factors × 3 dialects (Spark, T-SQL, Fabric) = 618
-  renderings, pinned in `tests/fixtures/tpc_query_rendering.json` alongside
-  TPC-H for a combined 750.
-- ScriptDom grammar validation of T-SQL and Fabric output.
+- 103 queries × 2 scale factors × 2 dialects (Spark, Fabric) = 412 renderings, pinned in `tests/fixtures/tpc_query_rendering.json` alongside TPC-H for a combined 500. Fabric is rendered through the `FabricDataWarehouse` engine, so the engine-registered rules are pinned too.
+- ScriptDom grammar validation of Fabric output.
 - DuckDB integration run: 103/103.
 - Rules asserted idempotent and literal-preserving against the generated source.

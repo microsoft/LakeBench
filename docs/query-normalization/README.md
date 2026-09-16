@@ -23,10 +23,7 @@ A hand-written per-engine SQL file is a *replacement workload*. Once it exists,
 nothing forces it to stay equivalent to the source, and divergence is invisible:
 the query still runs and still reports a time.
 
-This is not hypothetical. The Fabric Warehouse ClickBench overrides that
-preceded this design contained a q29 rewrite that silently never stripped the
-`www.` prefix, changing the query's grouping and its result. See
-[ClickBench: divergence from earlier overrides](clickbench.md#divergence-from-earlier-hand-written-overrides).
+This is not hypothetical. The Fabric Data Warehouse ClickBench overrides that preceded this design contained a q29 rewrite that silently never stripped the `www.` prefix, changing the query's grouping and its result. See [ClickBench: divergence from earlier overrides](clickbench.md#divergence-from-earlier-hand-written-overrides).
 
 Registered rules avoid this because they:
 
@@ -79,18 +76,20 @@ returns `None`. It must:
 | `query_name` | e.g. `"q29"` |
 | `schema` | benchmark DDL schema, for type-aware and case-sensitive decisions |
 | `dialect` | the **source** dialect being parsed |
-| `target_dialect` | the **engine's output** dialect — gate engine-specific rules on this |
+| `target_dialect` | the **engine's output** dialect |
 | `source_sql` | raw source text, for directives outside the SQL grammar |
 
-`dialect` and `target_dialect` are easy to confuse. A rule that only exists to
-satisfy Fabric Warehouse must test `context.target_dialect`, not
-`context.dialect`.
+`dialect` and `target_dialect` are easy to confuse. A rule that inspects the target must test `context.target_dialect`, not `context.dialect`.
 
 > **A dialect is not an engine.** Polars and DuckDB both render through
 > `SQLGLOT_DIALECT = "duckdb"`, but only DuckDB executes DuckDB SQL — Polars'
 > SQL frontend rejects interval syntax and several functions DuckDB accepts.
 > When an accommodation is for one engine rather than one output grammar,
 > register it in `ENGINE_QUERY_NORMALIZERS`, which is keyed by engine class.
+
+**Prefer engine registration over a target-dialect gate.** An accommodation that exists to satisfy one engine belongs in `ENGINE_QUERY_NORMALIZERS`, keyed by that engine class, not in a global rule guarded by `context.target_dialect`. A gate on `{"tsql", "fabric"}` silently claims every current and future engine that renders those dialects, including ones whose warehouse does support the construct being worked around. Registration also makes the accommodation visible in `BENCHMARK_IMPL_REGISTRY` terms and lets a downstream integration unregister it.
+
+Reserve `context.target_dialect` for rules that really are a property of the renderer family rather than of one engine — for example choosing `'$1'` versus `'\1'` regex backreference syntax, which follows the regex engine each dialect maps onto and spans Spark, Databricks, and MySQL alike.
 
 ---
 
@@ -112,16 +111,8 @@ be justified:
 
 ## Verification
 
-- **Rendering fingerprints** — `tests/fixtures/tpc_query_rendering.json` (750
-  TPC outputs) and `tests/fixtures/clickbench_query_rendering.json` (215) pin
-  every rendered query. Any unintended change to any engine's SQL fails. Both
-  fixtures use the same `versions` / `sha256` / `overrides` shape: `sha256`
-  records the current-SQLGlot rendering and `overrides` records, per pinned
-  SQLGlot version, only the queries that version renders differently. A SQLGlot
-  version outside `versions` fails the test rather than silently re-baselining.
-- **Grammar validation** — T-SQL and Fabric output is parsed with
-  `Microsoft.SqlServer.TransactSql.ScriptDom` (`TSql160Parser`) under both
-  `SqlEngineType.All` and `SqlEngineType.SqlAzure`.
+- **Rendering fingerprints** — `tests/fixtures/tpc_query_rendering.json` (500 TPC outputs) and `tests/fixtures/clickbench_query_rendering.json` (172) pin every rendered query. Each dialect is rendered through the engine that emits it, so engine-registered rules are pinned too. Any unintended change to any engine's SQL fails. Both fixtures use the same `versions` / `sha256` / `overrides` shape: `sha256` records the current-SQLGlot rendering and `overrides` records, per pinned SQLGlot version, only the queries that version renders differently. A SQLGlot version outside `versions` fails the test rather than silently re-baselining.
+- **Grammar validation** — Fabric output is parsed with `Microsoft.SqlServer.TransactSql.ScriptDom` (`TSql160Parser`) under both `SqlEngineType.All` and `SqlEngineType.SqlAzure`.
 - **Execution** — the DuckDB integration suite runs every query in every
   benchmark against real data.
 - **Semantic equivalence** — lowerings are executed and compared against the

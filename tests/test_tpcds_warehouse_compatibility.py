@@ -9,15 +9,23 @@ from sqlglot.schema import MappingSchema
 
 from lakebench.benchmarks import TPCDS
 from lakebench.benchmarks._load_and_query._query_normalizers import apply_query_normalizers
+from lakebench.benchmarks.tpcds._query_normalizers import ENGINE_QUERY_NORMALIZERS
 from lakebench.engines.duckdb import DuckDB
+from lakebench.engines.fabric_data_warehouse import FabricDataWarehouse
 from tests.test_tpch_query_generation import _uninitialized_engine
 
 ROOT = Path(__file__).parents[1] / "src" / "lakebench" / "benchmarks" / "tpcds" / "resources" / "queries" / "canonical"
 DIALECTS = ["tsql", "spark", "duckdb", "mysql", "fabric"]
 
 
-def _benchmark(dialect="tsql", scale=1000):
-    engine = _uninitialized_engine(DuckDB)
+def _benchmark(dialect="tsql", scale=1000, engine_class=DuckDB):
+    """Builds a benchmark whose engine renders ``dialect``.
+
+    ``engine_class`` selects which engine-registered normalizers apply. Rendering the
+    warehouse dialect through ``DuckDB`` therefore isolates the dialect-neutral rules
+    from the accommodations registered to :class:`FabricDataWarehouse`.
+    """
+    engine = _uninitialized_engine(engine_class)
     engine.SQLGLOT_DIALECT = dialect
     engine.schema_name = "dbo"
     return TPCDS(
@@ -28,21 +36,42 @@ def _benchmark(dialect="tsql", scale=1000):
     )
 
 
+def _warehouse(scale=1000):
+    return _benchmark(dialect="fabric", scale=scale, engine_class=FabricDataWarehouse)
+
+
+def _apply_warehouse_normalizers(expression, query_name, schema, dialect="fabric"):
+    return apply_query_normalizers(
+        expression,
+        query_name,
+        schema,
+        "tsql",
+        {},
+        target_dialect=dialect,
+        engine_type=FabricDataWarehouse,
+        engine_normalizers=ENGINE_QUERY_NORMALIZERS,
+    )
+
+
+@pytest.mark.parametrize("scale", [1000, 10000])
+@pytest.mark.parametrize("name", ["q17", "q29", "q35", "q39a", "q39b"])
+def test_sample_stddev_rewrites_the_function_name_only_for_the_warehouse_engine(scale, name):
+    """Both benchmarks render ``fabric``; only the engine registration differs."""
+    before = _benchmark("fabric", scale)._return_query_definition(name)
+    after = _warehouse(scale)._return_query_definition(name)
+    assert after == before.replace("STDDEV_SAMP(", "STDEV(")
+    assert "STDDEV_SAMP(" not in after
+    # STDEVP is the population form, which would change the computed value.
+    assert "STDEVP(" not in after
+    if scale == 1000 and name in {"q29", "q35"}:
+        assert after == before
+
+
 @pytest.mark.parametrize("scale", [1000, 10000])
 @pytest.mark.parametrize("dialect", DIALECTS)
 @pytest.mark.parametrize("name", ["q17", "q29", "q35", "q39a", "q39b"])
-def test_sample_stddev_rewrites_only_tsql_function_name(scale, dialect, name):
+def test_sample_stddev_is_left_alone_for_every_other_engine(scale, dialect, name):
     benchmark = _benchmark(dialect, scale)
-    benchmark.QUERY_NORMALIZERS = {}
-    before = benchmark._return_query_definition(name)
-    benchmark.QUERY_NORMALIZERS = TPCDS.QUERY_NORMALIZERS
-    after = benchmark._return_query_definition(name)
-    assert after == (before.replace("STDDEV_SAMP(", "STDEV(") if dialect in {"tsql", "fabric"} else before)
-    if dialect in {"tsql", "fabric"}:
-        assert "STDDEV_SAMP(" not in after
-        assert "STDEVP(" not in after
-    if scale == 1000 and name in {"q29", "q35"}:
-        assert after == before
     source = (ROOT / f"sf{scale}" / f"{name}.sql").read_text()
     normalized = benchmark._normalize_canonical_query(name, source)
     assert (
@@ -61,7 +90,7 @@ def test_sample_stddev_rewrites_only_tsql_function_name(scale, dialect, name):
 def test_sample_stddev_preserves_sample_not_population_semantics():
     duckdb = pytest.importorskip("duckdb")
     source = sqlglot.parse_one("SELECT STDDEV_SAMP(x) FROM (VALUES (1.0), (2.0), (3.0), (NULL)) t(x)", read="tsql")
-    normalized = apply_query_normalizers(source, "q17", {}, "tsql", TPCDS.QUERY_NORMALIZERS, target_dialect="tsql")
+    normalized = _apply_warehouse_normalizers(source, "q17", {}, dialect="tsql")
     assert source.find(exp.StddevSamp) is not None
     assert normalized.find(exp.StddevSamp) is None
     rendered = normalized.sql(dialect="tsql")
@@ -71,30 +100,40 @@ def test_sample_stddev_preserves_sample_not_population_semantics():
 
 
 def test_target_dialect_does_not_change_source_reader_or_leak_between_runs():
-    benchmark = _benchmark()
+    benchmark = _warehouse()
     first = benchmark._return_query_definition("q39a")
     benchmark.engine.SQLGLOT_DIALECT = "spark"
     second = benchmark._return_query_definition("q39a")
-    benchmark.engine.SQLGLOT_DIALECT = "tsql"
+    benchmark.engine.SQLGLOT_DIALECT = "fabric"
     assert benchmark.CANONICAL_QUERY_DIALECT == "tsql"
     assert "STDEV(" in first
-    assert "STDDEV_SAMP(" in second
+    # The rule is registered to the engine, so it swaps the node regardless of target.
+    # Only the rendering differs: Spark spells the same node STDDEV, never STDEV.
+    assert "STDDEV(" in second
+    assert "STDEV(" not in second.replace("STDDEV(", "")
     assert benchmark._return_query_definition("q39a") == first
+
+
+def test_sample_stddev_swap_is_scoped_to_the_engine_not_the_dialect():
+    """A non-warehouse engine rendering the warehouse dialect keeps the generated node."""
+    rendered = _benchmark("fabric")._return_query_definition("q39a")
+    assert "STDDEV_SAMP(" in rendered
+    assert "STDEV(" not in rendered
+
+
+@pytest.mark.parametrize("scale", [1000, 10000])
+def test_q22_widens_the_average_input_only_for_the_warehouse_engine(scale):
+    before = _benchmark("fabric", scale)._return_query_definition("q22")
+    after = _warehouse(scale)._return_query_definition("q22")
+    assert after == before.replace("AVG(inv_quantity_on_hand)", "AVG(CAST(inv_quantity_on_hand AS BIGINT))")
+    # Casting after the aggregate cannot prevent the overflow it is meant to avoid.
+    assert "CAST(AVG(" not in after
 
 
 @pytest.mark.parametrize("scale", [1000, 10000])
 @pytest.mark.parametrize("dialect", DIALECTS)
-def test_q22_widens_the_average_input_only_for_warehouse_dialects(scale, dialect):
+def test_q22_is_left_alone_for_every_other_engine(scale, dialect):
     benchmark = _benchmark(dialect, scale)
-    benchmark.QUERY_NORMALIZERS = {}
-    before = benchmark._return_query_definition("q22")
-    benchmark.QUERY_NORMALIZERS = TPCDS.QUERY_NORMALIZERS
-    after = benchmark._return_query_definition("q22")
-    if dialect in {"tsql", "fabric"}:
-        assert after == before.replace("AVG(inv_quantity_on_hand)", "AVG(CAST(inv_quantity_on_hand AS BIGINT))")
-        assert "CAST(AVG(" not in after
-    else:
-        assert after == before
     source = (ROOT / f"sf{scale}" / "q22.sql").read_text()
     normalized = benchmark._normalize_canonical_query("q22", source)
     assert (
@@ -120,15 +159,12 @@ def test_q22_widens_the_average_input_only_for_warehouse_dialects(scale, dialect
     ],
 )
 def test_q22_rejects_unexpected_average_shape(projection):
-    benchmark = _benchmark()
+    benchmark = _warehouse()
     with pytest.raises(ValueError, match="Expected q22"):
-        apply_query_normalizers(
+        _apply_warehouse_normalizers(
             sqlglot.parse_one(f"SELECT {projection} FROM inventory", read="tsql"),
             "q22",
             benchmark._query_normalization_schema(),
-            "tsql",
-            benchmark.QUERY_NORMALIZERS,
-            target_dialect="tsql",
         )
 
 

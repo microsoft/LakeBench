@@ -42,14 +42,7 @@ Other query rules qualify ambiguous ordering columns in q58 and q72,
 rename q90 aliases that are reserved by some engines, and cast q97 `CASE`
 outputs to `BIGINT` before aggregation to avoid integer overflow.
 
-The shared `normalize_date_interval_arithmetic` rule is registered for q5,
-q12, q16, q20, q21, q32, q37, q40, q77, q80, q82, q92, q94, q95, and q98.
-It lowers the generated DATE casts plus/minus whole-day intervals to portable
-`DateAdd` nodes. T-SQL renders `DATEADD`, with negative amounts for subtraction
-in q21/q40; other engines render their native date arithmetic. Generated dates,
-magnitudes, and directions are preserved. Unsupported interval shapes raise
-explicitly: accepting ANSI `INTERVAL` under SQLGlot's T-SQL reader does not
-establish that Fabric Warehouse supports it.
+The shared `normalize_date_interval_arithmetic` rule is registered for q5, q12, q16, q20, q21, q32, q37, q40, q77, q80, q82, q92, q94, q95, and q98. It lowers the generated DATE casts plus/minus whole-day intervals to portable `DateAdd` nodes. T-SQL renders `DATEADD`, with negative amounts for subtraction in q21/q40; other engines render their native date arithmetic. Generated dates, magnitudes, and directions are preserved. Unsupported interval shapes raise explicitly: accepting ANSI `INTERVAL` under SQLGlot's T-SQL reader does not establish that Fabric Data Warehouse supports it.
 
 q1's case rule changes the unquoted SR_FEE aggregate operand to the DDL's
 sr_fee spelling, without changing aliases or string literals. This is required

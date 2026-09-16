@@ -33,6 +33,7 @@ src/lakebench/
 │   ├── base.py                  # BaseEngine ABC — fsspec, runtime detection, result writing
 │   ├── spark.py                 # Generic Spark engine
 │   ├── fabric_spark.py          # Microsoft Fabric Spark (auto-authenticates via notebookutils)
+│   ├── fabric_data_warehouse.py      # Microsoft Fabric Data Warehouse (T-SQL over ODBC; COPY INTO / OPENROWSET loads)
 │   ├── synapse_spark.py         # Azure Synapse Spark
 │   ├── hdi_spark.py             # HDInsight Spark
 │   ├── duckdb.py                # DuckDB
@@ -125,45 +126,7 @@ Per-benchmark rule inventories and rationale live in `docs/query-normalization/`
 `clickbench.md`). Update the relevant page whenever rules change. The
 invariants below must hold regardless.
 
-TPC-H and TPC-DS always load immutable generated ANSI from
-`resources/queries/canonical/sf<scale>/q*.sql`. SQL-file overrides are not searched.
-Both use SQLGlot's built-in `tsql` reader through `parse_tpc_ansi_statements`,
-with minimal generator-specific lexical adaptations; there is no custom dialect.
-The reader accepts TOP and preserves typed, non-safe division and COUNT syntax.
-Its implicit NULL ordering is first for ascending and last for descending;
-explicit NULL ordering is preserved. Never serialize to intermediate T-SQL:
-render the normalized AST directly to the engine's target dialect.
-SQLGlot is pinned to 30.18.0 on Python 3.9+ and 26.30.0 on Python 3.8.
-Maintain adapters for both AST layouts (FROM/WITH keys, DROP target lists, and
-GROUPING nodes). Review SQL diffs before updating the 750 Spark/T-SQL/Fabric output
-fingerprints in tests/fixtures/tpc_query_rendering.json or the 215 in
-tests/fixtures/clickbench_query_rendering.json. Both fixtures share a
-`versions`/`sha256`/`overrides` shape, where `overrides` records only the
-queries a given pinned SQLGlot version renders differently; run the rendering
-tests under both pins. Version-dependent cosmetic rendering differences belong
-in `overrides`, never in a normalizer rule.
-The runtime stages are source parsing, registered `SOURCE_NORMALIZERS` (including
-TPC-H q15 lowering), `QUERY_NORMALIZERS`, `ENGINE_QUERY_NORMALIZERS`, then direct
-AST qualification and target rendering. Each registry applies `"*"` before the
-query ID; engine registries are keyed by class and inherited base-first.
-Rule context.dialect is the source dialect; context.target_dialect is the
-engine's output dialect. Do not normalize identifier case before case-sensitive
-binding checks.
-Shared `normalize_date_interval_arithmetic` lowers DATE casts +/- whole
-DAY/MONTH/YEAR intervals to portable `DateAdd` nodes.
-Subtraction uses a negative amount with an `exp.Neg` node, not `DateSub`
-(unsupported T-SQL output) or a negative numeric Literal (invalid DuckDB output).
-Generated dates, magnitudes, and operation directions must be preserved.
-Overflow fixes must widen the aggregate input, never cast its result: casting
-after aggregation cannot prevent INT overflow inside COUNT/SUM/AVG. AVG must
-widen to a real type; BIGINT or DECIMAL(38,0) stop the overflow but leave T-SQL
-truncating the average.
-Neither TPC benchmark registers join normalization by default: WHERE join
-predicates remain in place even if SQLGlot renders commas as CROSS JOIN. The shared
-join-normalization function is retained for explicit registration. Compatibility fixes must be
-registered structural rules, preserve generated substitutions, bump the module's
-`NORMALIZER_VERSION`, and document semantic accommodations on the benchmark's
-doc page. Per-query execution telemetry records applied rule IDs.
+TPC-H and TPC-DS always load immutable generated ANSI from `resources/queries/canonical/sf<scale>/q*.sql`. SQL-file overrides are not searched. Both use SQLGlot's built-in `tsql` reader through `parse_tpc_ansi_statements`, with minimal generator-specific lexical adaptations; there is no custom dialect. The reader accepts TOP and preserves typed, non-safe division and COUNT syntax. Its implicit NULL ordering is first for ascending and last for descending; explicit NULL ordering is preserved. Never serialize to intermediate T-SQL: render the normalized AST directly to the engine's target dialect. SQLGlot is pinned to 30.18.0 on Python 3.9+ and 26.30.0 on Python 3.8. Maintain adapters for both AST layouts (FROM/WITH keys, DROP target lists, and GROUPING nodes). Review SQL diffs before updating the 500 Spark/Fabric output fingerprints in tests/fixtures/tpc_query_rendering.json or the 172 in tests/fixtures/clickbench_query_rendering.json. Each dialect is rendered through the engine that emits it, so engine-registered rules are pinned too. Both fixtures share a `versions`/`sha256`/`overrides` shape, where `overrides` records only the queries a given pinned SQLGlot version renders differently; run the rendering tests under both pins. Version-dependent cosmetic rendering differences belong in `overrides`, never in a normalizer rule. The runtime stages are source parsing, registered `SOURCE_NORMALIZERS` (including TPC-H q15 lowering), `QUERY_NORMALIZERS`, `ENGINE_QUERY_NORMALIZERS`, then direct AST qualification and target rendering. Each registry applies `"*"` before the query ID; engine registries are keyed by class and inherited base-first. Rule context.dialect is the source dialect; context.target_dialect is the engine's output dialect. Prefer registering an engine-specific accommodation in `ENGINE_QUERY_NORMALIZERS` keyed by the engine class over gating a global rule on `context.target_dialect`; a dialect is a shared rendering target, so a dialect gate claims engines that never needed the fix. Fabric Data Warehouse's TPC-DS stddev/q22 rules and ClickBench grouping, aggregate-widening, and q29 lowering rules are registered to `FabricDataWarehouse` for that reason. Do not normalize identifier case before case-sensitive binding checks. Shared `normalize_date_interval_arithmetic` lowers DATE casts +/- whole DAY/MONTH/YEAR intervals to portable `DateAdd` nodes. Subtraction uses a negative amount with an `exp.Neg` node, not `DateSub` (unsupported T-SQL output) or a negative numeric Literal (invalid DuckDB output). Generated dates, magnitudes, and operation directions must be preserved. Overflow fixes must widen the aggregate input, never cast its result: casting after aggregation cannot prevent INT overflow inside COUNT/SUM/AVG. AVG must widen to a real type; BIGINT or DECIMAL(38,0) stop the overflow but leave T-SQL truncating the average. Neither TPC benchmark registers join normalization by default: WHERE join predicates remain in place even if SQLGlot renders commas as CROSS JOIN. The shared join-normalization function is retained for explicit registration. Compatibility fixes must be registered structural rules, preserve generated substitutions, bump the module's `NORMALIZER_VERSION`, and document semantic accommodations on the benchmark's doc page. Per-query execution telemetry records applied rule IDs.
 
 ClickBench uses the same pipeline with the official ClickHouse query set as its
 immutable source: `resources/queries/canonical/q1..q43.sql` are the exact lines
@@ -192,6 +155,7 @@ Install only what you need:
 |---|---|
 | `duckdb` | `duckdb`, `deltalake`, `pyarrow` |
 | `polars` | `polars`, `deltalake`, `pyarrow` |
+| `fabric_data_warehouse` | `sqlalchemy`, `pyodbc`, `pandas`, `requests` (needs ODBC Driver 18 on the host) |
 | `daft` | `daft`, `deltalake`, `pyarrow` |
 | `tpcds_datagen` | Compatibility extra; generator is bundled in supported platform wheels |
 | `tpcds_duckdb_datagen` | Legacy DuckDB TPC-DS generator |
