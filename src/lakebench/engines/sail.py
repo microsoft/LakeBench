@@ -92,6 +92,39 @@ class Sail(BaseEngine):
             posixpath.join(self.schema_or_working_directory_uri, table_name)
         )
 
+    def load_delimited_to_delta(
+        self,
+        folder_uri: str,
+        table_name: str,
+        columns,
+        file_extension: str,
+        table_is_precreated: bool = False,
+        context_decorator: Optional[str] = None,
+        column_name_mapping: Optional[Mapping[str, str]] = None,
+    ):
+        from ..utils.schema_utils import NATIVE_DELIMITER, TRAILING_DELIMITER_COLUMN, schema_to_sql_types
+
+        sql_types = schema_to_sql_types(columns, "spark")
+        # The generators terminate every line with a delimiter, producing one more
+        # field than the table has columns.
+        sql_types[TRAILING_DELIMITER_COLUMN] = "STRING"
+        schema_ddl = ", ".join(f"`{name}` {sql_type}" for name, sql_type in sql_types.items())
+        df = (
+            self.spark.read.schema(schema_ddl)
+            .option("sep", NATIVE_DELIMITER)
+            .option("header", "false")
+            .option("quote", "")
+            .option("escape", "")
+            .csv(posixpath.join(folder_uri, f"*.{file_extension}"))
+            .drop(TRAILING_DELIMITER_COLUMN)
+        )
+        resolved_mapping = self._resolve_column_name_mapping(table_name, df.columns, column_name_mapping)
+        if resolved_mapping:
+            df = df.withColumnsRenamed(resolved_mapping)
+        df.write.format("delta").mode("overwrite").save(
+            posixpath.join(self.schema_or_working_directory_uri, table_name)
+        )
+
     def register_table(self, table_name: str):
         """
         Register a Delta table as temporary view in Sail.

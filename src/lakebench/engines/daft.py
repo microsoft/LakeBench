@@ -82,6 +82,56 @@ class Daft(BaseEngine):
             )
         self.write_delta(table_df, self.table_path(table_name), mode="overwrite")
 
+    def load_delimited_to_delta(
+        self,
+        folder_uri: str,
+        table_name: str,
+        columns,
+        file_extension: str,
+        table_is_precreated: bool = False,
+        context_decorator: Optional[str] = None,
+        column_name_mapping: Optional[Mapping[str, str]] = None,
+    ):
+        import pyarrow
+
+        from ..utils.schema_utils import NATIVE_DELIMITER, TRAILING_DELIMITER_COLUMN, schema_to_pyarrow
+
+        arrow_schema = schema_to_pyarrow(columns)
+        target_types = {field.name: self.daft.DataType.from_arrow_type(field.type) for field in arrow_schema}
+        # Daft's CSV reader ignores declared decimal precision and mislabels the
+        # resulting array, so decimals are read as text and converted explicitly.
+        decimal_columns = {field.name for field in arrow_schema if pyarrow.types.is_decimal(field.type)}
+        schema = {
+            name: self.daft.DataType.string() if name in decimal_columns else data_type
+            for name, data_type in target_types.items()
+        }
+        # The generators terminate every line with a delimiter, producing one more
+        # field than the table has columns.
+        schema[TRAILING_DELIMITER_COLUMN] = self.daft.DataType.string()
+        table_df = self.daft.read_csv(
+            to_local_path(posixpath.join(folder_uri, f"*.{file_extension}")),
+            infer_schema=False,
+            schema=schema,
+            delimiter=NATIVE_DELIMITER,
+            has_headers=False,
+            quote=None,
+            escape_char=None,
+        ).exclude(TRAILING_DELIMITER_COLUMN)
+        if decimal_columns:
+            table_df = table_df.select(
+                *[
+                    self.daft.col(name).cast(target_types[name]) if name in decimal_columns else self.daft.col(name)
+                    for name in target_types
+                ]
+            )
+        daft_columns = [field.name for field in table_df.schema()]
+        resolved_mapping = self._resolve_column_name_mapping(table_name, daft_columns, column_name_mapping)
+        if resolved_mapping:
+            table_df = table_df.select(
+                *[self.daft.col(column).alias(resolved_mapping.get(column, column)) for column in daft_columns]
+            )
+        self.write_delta(table_df, self.table_path(table_name), mode="overwrite")
+
     def register_table(self, table_name: str):
         """
         Register a Delta table DataFrame in Daft.

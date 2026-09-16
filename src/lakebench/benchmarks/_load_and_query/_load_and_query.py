@@ -13,6 +13,7 @@ from ...engines.polars import Polars
 from ...engines.sail import Sail
 from ...engines.spark import Spark
 from ...utils.query_utils import get_table_name_from_ddl, transpile_and_qualify_query
+from ...utils.schema_utils import table_schemas_from_ddl
 from ..base import BaseBenchmark
 from ._query_normalizers import (
     EngineNormalizerRegistry,
@@ -186,6 +187,10 @@ class _LoadAndQuery(BaseBenchmark):
     DDL_VARIANT_REGISTRY: Dict[str, str] = {}
     COLUMN_NAME_MAPPING_REGISTRY: Dict[str, Dict[str, str]] = {}
     ANALYZE_COLUMN_REGISTRY: Dict[str, List[str]] = {}
+    #: Extension the benchmark's generator uses for its native pipe-delimited output.
+    #: ``None`` means the benchmark only supports Parquet input.
+    NATIVE_FILE_EXTENSION: Optional[str] = None
+    INPUT_FORMATS = ("parquet", "native")
     VERSION = ""
 
     def __init__(
@@ -203,9 +208,15 @@ class _LoadAndQuery(BaseBenchmark):
         ddl_override_dialect: Optional[str] = "spark",
         optimize: bool = False,
         analyze: Union[bool, Literal["none", "full", "selective"]] = "none",
+        input_format: str = "parquet",
     ):
         if ddl_variant is not None and ddl_override is not None:
             raise ValueError("'ddl_variant' and 'ddl_override' are mutually exclusive. Provide one or neither.")
+        if input_format not in self.INPUT_FORMATS:
+            raise ValueError(f"'input_format' must be one of: {', '.join(self.INPUT_FORMATS)}.")
+        if input_format == "native" and self.NATIVE_FILE_EXTENSION is None:
+            raise ValueError(f"{self.__class__.__name__} does not support input_format='native'.")
+        self.input_format = input_format
         if ddl_variant is not None and ddl_variant not in self.DDL_VARIANT_REGISTRY:
             available = list(self.DDL_VARIANT_REGISTRY.keys())
             raise ValueError(
@@ -227,6 +238,7 @@ class _LoadAndQuery(BaseBenchmark):
         else:
             ddl_variant_label = "default"
         self.engine.extended_engine_metadata["ddl_variant"] = ddl_variant_label
+        self.engine.extended_engine_metadata["input_format"] = input_format
 
         self.optimize = optimize
         if isinstance(analyze, bool):
@@ -292,6 +304,13 @@ class _LoadAndQuery(BaseBenchmark):
 
         self.benchmark_impl = self.benchmark_impl_class(self.engine) if self.benchmark_impl_class is not None else None
 
+        if input_format == "native" and self.benchmark_impl is not None:
+            raise ValueError(
+                f"input_format='native' is not supported by the {type(engine).__name__} implementation of "
+                f"{self.__class__.__name__}, which loads Parquet directly."
+            )
+        self._native_table_columns_cache = None
+
     def run(self, mode: str = "power_test"):
         """
         Executes a specific test mode based on the provided mode string.
@@ -342,44 +361,7 @@ class _LoadAndQuery(BaseBenchmark):
         self.engine.create_schema_if_not_exists(drop_before_create=True)
         self.engine.create_external_location(self.input_parquet_folder_uri)
 
-        if self._ddl_override is not None:
-            ddl = self._ddl_override
-            from_dialect = self._ddl_override_dialect
-        else:
-            ddl_file_name = (
-                self.DDL_VARIANT_REGISTRY[self._ddl_variant] if self._ddl_variant is not None else self.DDL_FILE_NAME
-            )
-
-            engine_class_name = self.engine.__class__.__name__.lower()
-            parent_class_name = self.engine.__class__.__bases__[0].__name__.lower()
-            benchmark_name = self.__class__.__name__.lower()
-            engine_root_lib_name = self.engine.__class__.__module__.split(".")[0]
-            from_dialect = self.engine.SQLGLOT_DIALECT
-
-            try:
-                # Try to load engine-specific DDL first
-                with importlib.resources.path(
-                    f"{engine_root_lib_name}.benchmarks.{benchmark_name}.resources.ddl.{engine_class_name}",
-                    ddl_file_name,
-                ) as ddl_path:
-                    with open(ddl_path, "r") as ddl_file:
-                        ddl = ddl_file.read()
-            except (ModuleNotFoundError, FileNotFoundError):
-                # Try parent engine class name if engine-specific fails
-                try:
-                    with importlib.resources.path(
-                        f"lakebench.benchmarks.{benchmark_name}.resources.ddl.{parent_class_name}", ddl_file_name
-                    ) as ddl_path:
-                        with open(ddl_path, "r") as ddl_file:
-                            ddl = ddl_file.read()
-                except (ModuleNotFoundError, FileNotFoundError):
-                    # Fall back to canonical DDL
-                    with importlib.resources.path(
-                        f"lakebench.benchmarks.{benchmark_name}.resources.ddl.canonical", ddl_file_name
-                    ) as ddl_path:
-                        with open(ddl_path, "r") as ddl_file:
-                            ddl = ddl_file.read()
-                    from_dialect = "spark"
+        ddl, from_dialect = self._resolve_ddl()
 
         statements = [s for s in ddl.split(";") if len(s) > 7]
         for statement in statements:
@@ -393,6 +375,74 @@ class _LoadAndQuery(BaseBenchmark):
             table_name = get_table_name_from_ddl(prepped_ddl)
 
             self.engine._create_empty_table(table_name=table_name, ddl=prepped_ddl)
+
+    def _resolve_ddl(self):
+        """
+        Resolve the DDL text and its source dialect for this benchmark and engine.
+
+        Returns
+        -------
+        tuple of (str, str)
+            The DDL text and the SQLGlot dialect it is written in.
+
+        Notes
+        -----
+        - If ``ddl_override`` was provided, that raw DDL string is used directly.
+        - If ``ddl_variant`` was provided, the corresponding file from ``DDL_VARIANT_REGISTRY``
+          is loaded using the same 3-tier engine fallback as the default DDL.
+        - Otherwise the canonical ``DDL_FILE_NAME`` is used.
+        """
+        if self._ddl_override is not None:
+            return self._ddl_override, self._ddl_override_dialect
+
+        ddl_file_name = (
+            self.DDL_VARIANT_REGISTRY[self._ddl_variant] if self._ddl_variant is not None else self.DDL_FILE_NAME
+        )
+
+        engine_class_name = self.engine.__class__.__name__.lower()
+        parent_class_name = self.engine.__class__.__bases__[0].__name__.lower()
+        benchmark_name = self.__class__.__name__.lower()
+        engine_root_lib_name = self.engine.__class__.__module__.split(".")[0]
+
+        try:
+            # Try to load engine-specific DDL first
+            with importlib.resources.path(
+                f"{engine_root_lib_name}.benchmarks.{benchmark_name}.resources.ddl.{engine_class_name}",
+                ddl_file_name,
+            ) as ddl_path:
+                with open(ddl_path, "r") as ddl_file:
+                    return ddl_file.read(), self.engine.SQLGLOT_DIALECT
+        except (ModuleNotFoundError, FileNotFoundError):
+            pass
+
+        try:
+            # Try parent engine class name if engine-specific fails
+            with importlib.resources.path(
+                f"lakebench.benchmarks.{benchmark_name}.resources.ddl.{parent_class_name}", ddl_file_name
+            ) as ddl_path:
+                with open(ddl_path, "r") as ddl_file:
+                    return ddl_file.read(), self.engine.SQLGLOT_DIALECT
+        except (ModuleNotFoundError, FileNotFoundError):
+            pass
+
+        # Fall back to canonical DDL
+        with importlib.resources.path(
+            f"lakebench.benchmarks.{benchmark_name}.resources.ddl.canonical", ddl_file_name
+        ) as ddl_path:
+            with open(ddl_path, "r") as ddl_file:
+                return ddl_file.read(), "spark"
+
+    def _native_table_columns(self):
+        """
+        Return ordered ``(column_name, data_type)`` pairs per table for native loads.
+
+        The native format carries no header and no types, so the resolved DDL is the
+        authoritative source of column order and column types.
+        """
+        if getattr(self, "_native_table_columns_cache", None) is None:
+            ddl, from_dialect = self._resolve_ddl()
+            self._native_table_columns_cache = table_schemas_from_ddl(ddl, dialect=from_dialect)
+        return self._native_table_columns_cache
 
     def _run_load_test(self):
         """
@@ -427,6 +477,16 @@ class _LoadAndQuery(BaseBenchmark):
                         table_name=table_name,
                         table_is_precreated=True,
                         context_decorator=tc.context_decorator,
+                    )
+                elif self.input_format == "native":
+                    tc.execution_telemetry = self.engine.load_delimited_to_delta(
+                        folder_uri=posixpath.join(self.input_parquet_folder_uri, f"{table_name}/"),
+                        table_name=table_name,
+                        columns=self._native_table_columns()[table_name],
+                        file_extension=self.NATIVE_FILE_EXTENSION,
+                        table_is_precreated=True,
+                        context_decorator=tc.context_decorator,
+                        column_name_mapping=self.COLUMN_NAME_MAPPING_REGISTRY.get(table_name),
                     )
                 else:
                     # Otherwise, use the generic load method

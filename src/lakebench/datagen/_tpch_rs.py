@@ -4,6 +4,8 @@ from ._tpcgen_rs import _TpcgenRsDataGenerator
 class _TPCHRsDataGenerator(_TpcgenRsDataGenerator):
     BENCHMARK_NAME = "tpch"
     BENCHMARK_LABEL = "TPC-H"
+    NATIVE_SUBCOMMAND = "tbl"
+    NATIVE_FILE_EXTENSION = "tbl"
     GEN_TABLE_REGISTRY = [
         "customer",
         "lineitem",
@@ -25,6 +27,18 @@ class _TPCHRsDataGenerator(_TpcgenRsDataGenerator):
         "partsupp": 27.735921,
         "region": 0.000141,
         "supplier": 0.550992,
+    }
+    #: Ratio of native pipe-delimited bytes to uncompressed Parquet bytes,
+    #: measured per table at SF1 with the bundled generator.
+    NATIVE_SIZE_FACTOR_DICT = {
+        "customer": 0.961,
+        "lineitem": 2.031,
+        "nation": 0.549,
+        "orders": 1.529,
+        "part": 1.733,
+        "partsupp": 1.064,
+        "region": 0.239,
+        "supplier": 0.86,
     }
     ZSTD1_COMPRESSION_FACTOR_DICT = {
         "customer": 2.956,

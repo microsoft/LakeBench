@@ -233,16 +233,71 @@ _Notes:_
   `store_sales/store_sales-00001.zstd.parquet`.
 - To use the legacy implementation, install
   `lakebench[tpcds_duckdb_datagen]` on Python 3.10+ and pass
-  `backend="duckdb"`.
-- Editable/source installations use the matching vendored binary from
+  `backend="duckdb"`.- Editable/source installations use the matching vendored binary from
+- `output_format="native"` emits the TPC generators' pipe-delimited text
+  instead of Parquet, matching what the official `dsdgen`/`dbgen` tools
+  produce. See
+  [Native TPC Generator Format](#native-tpc-generator-format-dat--tbl) below.- Editable/source installations use the matching vendored binary from
   `native/tpcgen`; installed wheels always use their packaged binary.
 - Large generations targeting mounted filesystems can set `num_threads=8` or
   `num_threads=16` to limit concurrent file creation and atomic renames. The
   default remains all available CPU cores.
 - The ClickBench dataset (only 1 size) should download with partitioned files in ~ 1 minute and ~ 6 minutes as a single file. 
 
-#### Is BYO Data Supported?
-If you want to use your own TPC-DS, TPC-H, or ClickBench Parquet datasets, that is fine and encouraged as long as they are to specification. LakeBench keeps the canonical TPC-DS schema as its table and query contract, but automatically corrects these recognized legacy input names while loading Parquet:
+#### Native TPC Generator Format (`.dat` / `.tbl`)
+
+TPC-H and TPC-DS can be generated and loaded in the TPC tools' native
+pipe-delimited text format instead of Parquet. This measures the load phase
+against the same raw format the official `dsdgen` and `dbgen` tools emit,
+rather than a pre-typed columnar file.
+
+```python
+from lakebench.datagen import TPCHDataGenerator
+from lakebench.benchmarks import TPCH
+from lakebench.engines import Polars
+
+TPCHDataGenerator(
+    scale_factor=1,
+    target_folder_uri='/lakehouse/default/Files/tpch_sf1_native',
+    output_format="native",      # .tbl for TPC-H, .dat for TPC-DS
+).run()
+
+benchmark = TPCH(
+    engine=Polars(schema_or_working_directory_uri='...'),
+    scenario_name='native-load',
+    scale_factor=1,
+    input_parquet_folder_uri='/lakehouse/default/Files/tpch_sf1_native',
+    input_format="native",
+)
+benchmark.run(mode='load_and_query')
+```
+
+_Notes:_
+- Output layout matches Parquet generation: `<root>/<table>/<table>-00001.tbl`
+  for TPC-H and `<root>/<table>/<table>-00001.dat` for TPC-DS.
+- The format carries no header and no types, so LakeBench derives each
+  reader's schema from the benchmark's resolved DDL. As a result, native loads
+  are always typed exactly as the DDL declares. The generator's Parquet output
+  does not always agree with the DDL on integer width (for example TPC-H
+  `n_nationkey` is `int64` in Parquet but `integer` in the DDL), so on engines
+  that do not pre-create tables the two formats can differ in integer width.
+  Values are identical.
+- Every generated line ends with a trailing delimiter. LakeBench reads one
+  extra trailing column and drops it, so no reader needs a lenient mode.
+- Empty fields are read as `NULL`, and quoting is disabled so `"` is treated
+  as ordinary data.
+- Parquet-only options (`target_row_group_size_mb`, `compression`, and
+  `compression_factor`) are rejected with `output_format="native"`. Automatic
+  part counts use per-table native-to-uncompressed-Parquet size ratios measured
+  at SF1.
+- Supported on the DuckDB, Polars, Daft, Sail, and Spark engines. Engines with
+  a benchmark-specific Parquet loader (such as Fabric Warehouse) reject
+  `input_format="native"` rather than silently loading Parquet.
+- `output_format="native"` requires `backend="rust"`; `tpcgen-cli tpcds dat`
+  does not accept `--num-threads`, so that option is ignored for TPC-DS native
+  generation only.
+
+#### Is BYO Data Supported?If you want to use your own TPC-DS, TPC-H, or ClickBench Parquet datasets, that is fine and encouraged as long as they are to specification. LakeBench keeps the canonical TPC-DS schema as its table and query contract, but automatically corrects these recognized legacy input names while loading Parquet:
 
 | Benchmark | Table | Legacy input name | Canonical LakeBench name |
 |---|---|---|---|

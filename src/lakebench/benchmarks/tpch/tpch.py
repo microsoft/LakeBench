@@ -42,7 +42,11 @@ class TPCH(_LoadAndQuery):
         List of queries to execute. Use '*' or omit this parameter to run query stream 0.
     input_parquet_folder_uri : str, optional
         Path to the input parquet files. Must be the root directory containing a folder named after
-        each table in TABLE_REGISTRY.
+        each table in TABLE_REGISTRY. When ``input_format="native"`` this points at the generator's
+        pipe-delimited ``.tbl`` output instead, in the same per-table folder layout.
+    input_format : {"parquet", "native"}, default="parquet"
+        Source data format. ``"native"`` reads the TPC generator's pipe-delimited ``.tbl`` files,
+        typing them from the benchmark's resolved DDL.
     result_table_uri : str, optional
         Table URI where results will be saved. Must be specified if `save_results` is True.
     save_results : bool
@@ -146,6 +150,7 @@ class TPCH(_LoadAndQuery):
         (13, 15, 17, 1, 22, 11, 3, 4, 7, 20, 14, 21, 9, 8, 2, 18, 16, 6, 10, 12, 5, 19),
     )
     DDL_FILE_NAME = "ddl_v3.0.1.sql"
+    NATIVE_FILE_EXTENSION = "tbl"
     DDL_VARIANT_REGISTRY = {
         "partitioned": "ddl_v3.0.1.partitioned.sql",
         "clustered": "ddl_v3.0.1.clustered.sql",

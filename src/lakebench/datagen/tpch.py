@@ -26,4 +26,9 @@ class TPCHDataGenerator(_TPCHRsDataGenerator):
         ZSTD levels use per-table factors measured with ``ZSTD(1)`` and
         ``SNAPPY`` uses its own measured factors; other compressed codecs
         require an explicit value.
+    output_format : {"parquet", "native"}, default="parquet"
+        ``"native"`` emits the generator's pipe-delimited ``.tbl`` files, the
+        same layout the official ``dbgen`` produces. Parquet-only options
+        (``target_row_group_size_mb``, ``compression``, ``compression_factor``)
+        are rejected in that mode.
     """
