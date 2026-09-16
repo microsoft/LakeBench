@@ -22,6 +22,13 @@ class Sail(BaseEngine):
     SUPPORTS_ONELAKE = True
     SUPPORTS_SCHEMA_PREP = False
     SUPPORTS_MOUNT_PATH = True
+    REQUIRED_MODULES = (
+        "pysail",
+        "pyspark",
+        "deltalake",
+        "pyarrow",
+    )
+    INSTALL_EXTRA = "sail"
 
     def __init__(
         self,

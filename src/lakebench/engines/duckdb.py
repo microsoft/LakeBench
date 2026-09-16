@@ -18,6 +18,12 @@ class DuckDB(BaseEngine):
     SUPPORTS_ONELAKE = True
     SUPPORTS_SCHEMA_PREP = True
     SUPPORTS_MOUNT_PATH = True
+    REQUIRED_MODULES = (
+        "duckdb",
+        "deltalake",
+        "pyarrow",
+    )
+    INSTALL_EXTRA = "duckdb"
 
     def __init__(
         self,

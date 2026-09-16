@@ -37,6 +37,8 @@ class Spark(BaseEngine):
     SUPPORTS_MOUNT_PATH = True
     SUPPORTS_ONELAKE = True
     SUPPORTS_SCHEMA_PREP = True
+    REQUIRED_MODULES = ("pyspark",)
+    INSTALL_EXTRA = "spark"
 
     def __init__(
         self,

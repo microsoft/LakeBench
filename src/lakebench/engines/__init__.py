@@ -1,4 +1,4 @@
-from .base import BaseEngine
+from .base import BaseEngine, MissingDependenciesError
 from .daft import Daft
 from .delta_rs import DeltaRs
 from .duckdb import DuckDB

@@ -65,6 +65,8 @@ Abstract base for all compute engines.
 | `schema_or_working_directory_uri` | Base path where Delta tables are stored |
 | `storage_options` | Dict passed through to DeltaRs / fsspec for cloud auth |
 | `extended_engine_metadata` | Dict of key/value pairs appended to benchmark results |
+| `REQUIRED_MODULES` | Top-level modules the engine imports lazily; checked at construction |
+| `INSTALL_EXTRA` | Extra that installs `REQUIRED_MODULES`, used to build the install hint |
 
 Key methods: `get_total_cores()`, `get_compute_size()`, `get_job_cost(duration_ms)`, `create_schema_if_not_exists()`, `_append_results_to_delta()`.
 
@@ -187,6 +189,7 @@ Set `sql_text` *before* executing, so the statement is still recorded when the e
 - **`storage_options`** on `BaseEngine` is the single place for cloud auth credentials (bearer token, SAS, etc.).
 - **`extended_engine_metadata`** on `BaseEngine` is the right place to attach runtime-specific metadata that ends up in the `engine_properties` MAP column of results.
 - **TPC-DS / TPC-H spec compliance**: LakeBench intentionally diverges from `spark-sql-perf` to follow the official specs (see `customer.c_last_review_date_sk` and `store.s_tax_percentage` fixes in README).
+- **New engines** should declare `REQUIRED_MODULES` (top-level module names, not distribution names) and `INSTALL_EXTRA`. `BaseEngine.__init__` calls `verify_dependencies()` first and raises `MissingDependenciesError` (an `ImportError`) naming every missing module plus the `pip install lakebench[...]` hint. Availability is resolved with `importlib.util.find_spec`, so runtime-provided modules like `pyspark` on Fabric count as present. Override `verify_dependencies()` for non-pip prerequisites (e.g. `FabricDataWarehouse` checks for ODBC Driver 18).
 - **New benchmarks** should subclass `BaseBenchmark`, define `RESULT_SCHEMA`, `BENCHMARK_IMPL_REGISTRY`, `VERSION`, and implement `run()`.
 - **Input location** is accepted as either `input_folder_uri` (preferred) or `input_parquet_folder_uri` (alias). Constructors resolve the pair through `benchmarks/base.py::resolve_input_folder_uri`, which rejects conflicting values; `BaseBenchmark` then sets both attributes to the resolved value.
 

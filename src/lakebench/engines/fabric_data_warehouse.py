@@ -6,7 +6,7 @@ from contextlib import closing
 from typing import Iterable, Mapping, Optional, Sequence
 
 from ..utils.path_utils import abfss_to_https
-from .base import BaseEngine
+from .base import BaseEngine, MissingDependenciesError
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,15 @@ class FabricDataWarehouse(BaseEngine):
     SUPPORTS_MOUNT_PATH = False
     SUPPORTS_ONELAKE = True
     SUPPORTS_SCHEMA_PREP = True
+    REQUIRED_MODULES = (
+        "sqlalchemy",
+        "pyodbc",
+        "pandas",
+        "requests",
+    )
+    INSTALL_EXTRA = "fabric_data_warehouse"
+    #: Named in the connection string, so it has to be present on the host as well.
+    _ODBC_DRIVER = "ODBC Driver 18 for SQL Server"
     #: Every line the TPC generators emit ends with the field delimiter followed by a
     #: line feed, so folding the trailing pipe into a multi-character row terminator
     #: consumes it without declaring a throwaway column. COPY INTO prefixes a carriage
@@ -112,6 +121,19 @@ class FabricDataWarehouse(BaseEngine):
             }
         )
 
+    @classmethod
+    def verify_dependencies(cls) -> None:
+        super().verify_dependencies()
+
+        import pyodbc
+
+        if cls._ODBC_DRIVER not in pyodbc.drivers():
+            raise MissingDependenciesError(
+                f"{cls.__name__} connects through `{cls._ODBC_DRIVER}`, which is not installed on this host. "
+                "It is a system driver rather than a Python package, so pip cannot supply it; install it from "
+                "https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server."
+            )
+
     def _get_sql_version(self):
         version_str = self.execute_sql_query("SELECT @@VERSION", return_data=True).iloc[0, 0]
         match = re.search(r"\d+\.\d+\.\d+\.\d+", version_str)
@@ -147,7 +169,7 @@ class FabricDataWarehouse(BaseEngine):
         import sqlalchemy as sa
 
         connection_string = (
-            "Driver={ODBC Driver 18 for SQL Server};"
+            f"Driver={{{self._ODBC_DRIVER}}};"
             f"Server={self.warehouse_server};"
             f"Database={self.warehouse_name};"
             "Encrypt=yes;"

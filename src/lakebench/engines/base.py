@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 from abc import ABC
 from decimal import Decimal
@@ -8,6 +9,10 @@ from typing import Any, Collection, Mapping, Optional, Sequence
 from urllib.parse import urlparse
 
 import fsspec
+
+
+class MissingDependenciesError(ImportError):
+    """Raised when an engine is constructed without the packages its extra installs."""
 
 
 class BaseEngine(ABC):
@@ -40,6 +45,55 @@ class BaseEngine(ABC):
     SUPPORTS_SCHEMA_PREP = False
     SUPPORTS_MOUNT_PATH = True
     TABLE_FORMAT = "delta"
+    #: Top-level modules the engine needs at runtime. They are imported lazily, so a
+    #: missing one would otherwise surface partway through a run, often as an error
+    #: that names neither the engine nor the package to install.
+    REQUIRED_MODULES: tuple[str, ...] = ()
+    #: Extra that installs `REQUIRED_MODULES`, used to build the install hint.
+    INSTALL_EXTRA: Optional[str] = None
+
+    @classmethod
+    def missing_dependencies(cls) -> list[str]:
+        """
+        Returns the required modules that cannot be imported, in declared order.
+
+        Availability is resolved from the import system rather than installed
+        distribution names, so packages supplied by a managed runtime (such as
+        pyspark on Fabric or Synapse) count as present.
+        """
+        missing = []
+        for module in cls.REQUIRED_MODULES:
+            try:
+                found = importlib.util.find_spec(module) is not None
+            except (ImportError, ValueError):
+                found = False
+            if not found:
+                missing.append(module)
+        return missing
+
+    @classmethod
+    def verify_dependencies(cls) -> None:
+        """
+        Raises `MissingDependenciesError` naming every missing module at once.
+
+        Reporting the full set matters: fixing them one error at a time means one
+        failed run per missing package.
+        """
+        missing = cls.missing_dependencies()
+        if not missing:
+            return
+
+        quoted = [f"`{module}`" for module in missing]
+        packages = quoted[0] if len(quoted) == 1 else f"{', '.join(quoted[:-1])} and {quoted[-1]}"
+        verb = "is" if len(missing) == 1 else "are"
+        hint = (
+            f"`pip install lakebench[{cls.INSTALL_EXTRA}]`"
+            if cls.INSTALL_EXTRA
+            else f"`pip install {' '.join(missing)}`"
+        )
+        raise MissingDependenciesError(
+            f"{cls.__name__} requires {packages}, which {verb} not installed. Install with {hint}."
+        )
 
     def __init__(self, schema_or_working_directory_uri: str = None, storage_options: Optional[dict[str, Any]] = None):
         """
@@ -51,7 +105,14 @@ class BaseEngine(ABC):
             this serves as the root schema path where tables are created.
         storage_options : dict, optional
             A dictionary of storage options to pass to the engine for filesystem access.
+
+        Raises
+        ------
+        MissingDependenciesError
+            If any module the engine needs at runtime is not installed.
         """
+        self.verify_dependencies()
+
         self.version: str = ""
         self.cost_per_vcore_hour: Optional[float] = None
         self.cost_per_hour: Optional[float] = None

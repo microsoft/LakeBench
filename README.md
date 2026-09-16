@@ -152,6 +152,16 @@ benchmark = ELTBench(engine=MyCustomEngine(...))
 benchmark.run()
 ```
 
+An engine that depends on packages outside the LakeBench core should declare them so construction fails with an actionable message rather than deep inside a run. Name the top-level modules the engine imports, not the distributions that provide them:
+
+```python
+class MyCustomEngine(BaseEngine):
+    REQUIRED_MODULES = ("mylib", "deltalake", "pyarrow")
+    INSTALL_EXTRA = "mycustom"
+```
+
+`INSTALL_EXTRA` is optional; without it the hint falls back to `pip install <modules>`. Override the `verify_dependencies()` classmethod to add checks pip cannot express, such as a system driver.
+
 ---
 
 # Using LakeBench
@@ -167,6 +177,17 @@ pip install lakebench[duckdb,polars,tpcds_datagen,tpch_datagen,sparkmeasure]
 > _Note: the `daft` extra pins `deltalake` to 1.5.x (Daft cannot read the Arrow `Utf8View` parquet that `deltalake` 1.6.x emits from `MERGE`), so it must be installed in its own environment rather than alongside `duckdb`, `polars`, or `sail`._
 >
 > `tpch_datagen` and `tpcds_datagen` use the same self-contained Rust `tpcgen-cli` binary bundled in the Windows x86_64 and Linux x86_64 LakeBench wheels. The legacy DuckDB TPC-DS generator remains available separately through `tpcds_duckdb_datagen`.
+
+Engines import their heavy dependencies lazily, so a forgotten extra used to surface partway into a run as an error that named neither the engine nor the package to install. Every engine now checks its dependencies when it is constructed and reports all of the missing ones at once:
+
+```python
+>>> from lakebench.engines import DuckDB
+>>> DuckDB(schema_or_working_directory_uri="file:///tmp/lakebench")
+lakebench.engines.base.MissingDependenciesError: DuckDB requires `duckdb`, which is not
+installed. Install with `pip install lakebench[duckdb]`.
+```
+
+`MissingDependenciesError` subclasses `ImportError`, so existing `except ImportError` handling keeps working. Availability is resolved through the import system rather than through installed distribution names, so modules supplied by a managed runtime — such as `pyspark` on Fabric, Synapse, or HDInsight — count as present and do not trigger a false failure. `FabricDataWarehouse` additionally checks for the Microsoft ODBC Driver 18 for SQL Server, which pip cannot install.
 
 ## Example Usage
 To run any LakeBench benchmark, first do a one time generation of the data required for the benchmark and scale of interest. LakeBench provides datagen classes to quickly generate parquet datasets required by the benchmarks.
