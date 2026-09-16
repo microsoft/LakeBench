@@ -22,9 +22,10 @@ uv run pytest tests/integration/test_duckdb.py -v -s
 ```
 
 ### Daft
+> Unsupported as of LakeBench 2.0.0 and excluded from CI: Daft cannot read the Arrow `Utf8View` the TPC generators emit, so every TPC-H, TPC-DS, and ELTBench table fails to load. The tests are skipped unless you opt in, so support can be re-checked in one command once Daft handles the type.
 ```bash
 uv sync --group dev --extra daft --extra tpch_datagen --extra tpcds_datagen
-uv run pytest tests/integration/test_daft.py -v -s
+LAKEBENCH_RUN_DAFT_INTEGRATION=1 uv run pytest tests/integration/test_daft.py -v -s
 ```
 
 ### Polars
@@ -86,10 +87,12 @@ Daft must be synced on its own: it pins `deltalake` to 1.5.x (Daft cannot read t
 
 | Benchmark  | DuckDB | Daft | Polars | Spark | Sail |
 |------------|:------:|:----:|:------:|:-----:|:----:|
-| TPC-H      | ✅     | ✅   | ✅     | ✅    | ✅   |
-| TPC-DS     | ✅     | ✅   | ✅     | ✅    | ✅   |
+| TPC-H      | ✅     | ❌   | ✅     | ✅    | ✅   |
+| TPC-DS     | ✅     | ❌   | ✅     | ✅    | ✅   |
 | ClickBench | ✅     | —    | ✅     | ✅    | ✅   |
-| ELTBench   | ✅     | ✅   | ✅     | ✅    | ✅   |
+| ELTBench   | ✅     | ❌   | ✅     | ✅    | ✅   |
+
+Daft's ❌ entries are the `Utf8View` load failure described above, not missing coverage; the tests exist and are skipped by default.
 
 ClickBench uses the committed 100-row sample at `tests/integration/data/clickbench_sample.parquet`.
 

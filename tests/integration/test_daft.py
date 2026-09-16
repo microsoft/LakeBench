@@ -1,10 +1,18 @@
 """
 Integration tests: all benchmarks with the Daft engine.
 
+Daft is unsupported as of LakeBench 2.0.0, so these are skipped by default. Daft
+cannot read Parquet whose embedded Arrow schema uses `Utf8View`, which the bundled
+TPC generators emit, so every TPC-H, TPC-DS, and ELTBench table fails to load.
+The tests are kept so support can be re-verified in one command once Daft handles
+the type; see reports/coverage/daft.md for the recorded failures.
+
 Run with:
     uv sync --group dev --extra daft --extra tpcds_datagen --extra tpch_datagen
-    uv run pytest tests/integration/test_tpc_daft.py -v -s
+    LAKEBENCH_RUN_DAFT_INTEGRATION=1 uv run pytest tests/integration/test_daft.py -v -s
 """
+
+import os
 
 import pytest
 
@@ -13,6 +21,14 @@ from tests.integration.conftest import report_and_assert, run_benchmark
 
 pytest.importorskip("daft", reason="requires lakebench[daft] extra")
 pytest.importorskip("deltalake", reason="requires lakebench[daft] extra")
+
+pytestmark = pytest.mark.skipif(
+    os.environ.get("LAKEBENCH_RUN_DAFT_INTEGRATION") != "1",
+    reason=(
+        "Daft is unsupported as of LakeBench 2.0.0: it cannot read the Arrow Utf8View the TPC "
+        "generators emit. Set LAKEBENCH_RUN_DAFT_INTEGRATION=1 to re-check."
+    ),
+)
 
 
 def _engine(tmp_path, name):
