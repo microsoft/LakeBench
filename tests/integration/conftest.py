@@ -262,10 +262,12 @@ def _render_engine_report(engine_label: str, records: list) -> str:
     )
     if _engine_slug(engine_label) == "daft" and has_utf8view_failure:
         lines += [
-            "> **Compatibility note:** Daft 0.7.21, used by this LakeBench test lane, cannot read Parquet files "
-            "whose embedded Arrow schema uses `Utf8View`. The latest PyPI release tested, Daft 0.7.24, fails with "
-            "the same unsupported-type error. The bundled TPC generator intentionally retains this Arrow type, "
-            "so affected TPC and ELTBench loads are reported as unsupported rather than rewritten during generation.",
+            "> **Compatibility note:** Daft is unsupported as of LakeBench 2.0.0. Daft 0.7.21, used by this "
+            "LakeBench test lane, cannot read Parquet files whose embedded Arrow schema uses `Utf8View`. The "
+            "latest PyPI release tested, Daft 0.7.24, fails with the same unsupported-type error. The bundled "
+            "TPC generator intentionally retains this Arrow type, so affected TPC and ELTBench loads are "
+            "reported as unsupported rather than rewritten during generation. The Daft integration tests are "
+            "excluded from CI and skipped unless `LAKEBENCH_RUN_DAFT_INTEGRATION=1` is set.",
             "",
         ]
     for r in ordered:
