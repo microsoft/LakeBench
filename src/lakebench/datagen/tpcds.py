@@ -31,7 +31,9 @@ class TPCDSDataGenerator:
     num_threads : int, optional
         Rust worker-thread count. Defaults to all available CPU cores. Use a
         lower value such as 8 or 16 for large generations targeting mounted
-        filesystems.
+        filesystems. Rejected when ``output_format="native"``, because
+        ``tpcgen-cli tpcds dat`` has no thread option; use the part count for
+        parallelism instead.
     backend : {"rust", "duckdb"}, default="rust"
         Data generator backend. DuckDB is retained as an explicit legacy fallback.
     compression_factor : float, optional

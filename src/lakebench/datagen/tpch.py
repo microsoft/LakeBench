@@ -20,7 +20,9 @@ class TPCHDataGenerator(_TPCHRsDataGenerator):
     num_threads : int, optional
         Rust worker-thread count. Defaults to all available CPU cores. Use a
         lower value such as 8 or 16 for large generations targeting mounted
-        filesystems.
+        filesystems. Honoured for both ``output_format="parquet"`` and
+        ``output_format="native"``, since ``tpcgen-cli tpch tbl`` accepts
+        ``--num-threads``.
     compression_factor : float, optional
         Ratio of uncompressed to on-disk Parquet bytes. Measured per-table
         ZSTD levels use per-table factors measured with ``ZSTD(1)`` and

@@ -301,9 +301,11 @@ _Notes:_
 - Supported on the DuckDB, Polars, Daft, Sail, and Spark engines. Engines with
   a benchmark-specific Parquet loader (such as Fabric Warehouse) reject
   `input_format="native"` rather than silently loading Parquet.
-- `output_format="native"` requires `backend="rust"`; `tpcgen-cli tpcds dat`
-  does not accept `--num-threads`, so that option is ignored for TPC-DS native
-  generation only.
+- `output_format="native"` requires `backend="rust"`. `tpcgen-cli tpcds dat`
+  has no thread option at all, so `num_threads` is rejected for TPC-DS native
+  generation; parallelism there comes from the part count. `tpcgen-cli tpch tbl`
+  does accept `--num-threads`, so TPC-H native honours it exactly like Parquet
+  (defaulting to all available CPU cores).
 
 #### Naming the Input Location
 

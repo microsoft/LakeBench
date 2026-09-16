@@ -81,6 +81,12 @@ class _TpcgenRsDataGenerator:
                     "The following options apply only to output_format='parquet': "
                     + ", ".join(supplied_parquet_options)
                 )
+            if num_threads is not None and not self.NATIVE_SUPPORTS_NUM_THREADS:
+                raise ValueError(
+                    f"'num_threads' is not supported by tpcgen-cli {self.BENCHMARK_NAME} "
+                    f"{self.NATIVE_SUBCOMMAND}, which has no thread option. Use 'parts' "
+                    "parallelism instead, or generate Parquet."
+                )
         target_row_group_size_mb = 128 if target_row_group_size_mb is None else target_row_group_size_mb
         # Native pipe-delimited text has no column compression, so the uncompressed
         # estimate is the closest available proxy for its on-disk size.

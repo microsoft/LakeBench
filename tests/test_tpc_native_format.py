@@ -156,6 +156,29 @@ def test_native_rejects_parquet_only_options(tmp_path, fake_executable, option):
         )
 
 
+def test_tpcds_native_rejects_num_threads(tmp_path, fake_executable):  # noqa: F811
+    # `tpcgen-cli tpcds dat` writes serially and exposes no thread option, so an
+    # explicit num_threads must be rejected rather than silently ignored.
+    with pytest.raises(ValueError, match="'num_threads' is not supported"):
+        _TPCDSRsDataGenerator(
+            scale_factor=1,
+            target_folder_uri=str(tmp_path / "t"),
+            output_format="native",
+            num_threads=4,
+        )
+
+
+def test_tpcds_parquet_still_accepts_num_threads(tmp_path, fake_executable):  # noqa: F811
+    generator = _TPCDSRsDataGenerator(
+        scale_factor=1,
+        target_folder_uri=str(tmp_path / "t"),
+        output_format="parquet",
+        num_threads=4,
+    )
+
+    assert generator.num_threads == 4
+
+
 def test_native_output_format_is_rejected_for_duckdb_backend(tmp_path):
     with pytest.raises(ValueError, match="supported only by backend='rust'"):
         TPCDSDataGenerator(
