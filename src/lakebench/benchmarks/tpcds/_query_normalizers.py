@@ -14,7 +14,7 @@ from .._load_and_query._query_normalizers import (
     parse_tpc_ansi_statements,
 )
 
-NORMALIZER_VERSION = "11"
+NORMALIZER_VERSION = "12"
 
 
 def _normalize_ansi_syntax(query: str) -> str:
@@ -309,9 +309,34 @@ def _sail_q12_safe_denominator(expression: exp.Expression, context: QueryNormali
         ratios[0].set("expression", exp.Nullif(this=window.copy(), expression=exp.Literal.number(0)))
 
 
+def _sail_q90_safe_denominator(expression: exp.Expression, context: QueryNormalizerContext) -> None:
+    """Guards q90's am/pm ratio against a zero ``pmc`` count.
+
+    ``pmc`` is a ``COUNT(*)`` over a narrow time-of-day window, so it is legitimately
+    zero on small scale factors. Spark and DuckDB yield NULL; Sail raises
+    ``Division by zero``. NULLIF makes the NULL explicit rather than engine-dependent.
+    """
+    ratios = [projection.this for projection in expression.expressions if projection.alias == "am_pm_ratio"]
+    if len(ratios) != 1 or not isinstance(ratios[0], exp.Div):
+        raise ValueError("Expected one q90 am_pm_ratio division.")
+    denominator = ratios[0].expression
+    if isinstance(denominator, exp.Nullif) and denominator.expression == exp.Literal.number(0):
+        return
+    if (
+        not isinstance(denominator, exp.Cast)
+        or not isinstance(denominator.this, exp.Column)
+        or denominator.this.name != "pmc"
+    ):
+        raise ValueError("Expected q90's CAST(pmc AS DECIMAL) denominator.")
+    ratios[0].set("expression", exp.Nullif(this=denominator.copy(), expression=exp.Literal.number(0)))
+
+
 ENGINE_QUERY_NORMALIZERS: EngineNormalizerRegistry = {
     Polars: {"*": (fold_constant_date_arithmetic,)},
-    Sail: {"q12": (_sail_q12_safe_denominator,)},
+    Sail: {
+        "q12": (_sail_q12_safe_denominator,),
+        "q90": (_sail_q90_safe_denominator,),
+    },
 }
 
 

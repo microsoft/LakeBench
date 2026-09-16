@@ -331,6 +331,7 @@ def test_clickbench_resolution_never_searches_engine_sql_files(engine_class):
         (TPCH, Daft, "q9", 4),
         (TPCH, Daft, "q14", 5),
         (TPCDS, Sail, "q12", 0),
+        (TPCDS, Sail, "q90", 0),
     ],
 )
 def test_engine_rules_preserve_generated_literals_and_are_idempotent(
@@ -390,7 +391,14 @@ def test_engine_rules_preserve_generated_literals_and_are_idempotent(
 
 @pytest.mark.parametrize(
     ("benchmark_class", "engine_class", "query_name"),
-    [(TPCH, Daft, "q1"), (TPCH, Daft, "q8"), (TPCH, Daft, "q9"), (TPCH, Daft, "q14"), (TPCDS, Sail, "q12")],
+    [
+        (TPCH, Daft, "q1"),
+        (TPCH, Daft, "q8"),
+        (TPCH, Daft, "q9"),
+        (TPCH, Daft, "q14"),
+        (TPCDS, Sail, "q12"),
+        (TPCDS, Sail, "q90"),
+    ],
 )
 def test_engine_rules_reject_unexpected_query_shapes(benchmark_class, engine_class, query_name):
     with pytest.raises(ValueError, match="Expected"):

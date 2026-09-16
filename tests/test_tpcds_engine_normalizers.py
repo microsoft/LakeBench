@@ -5,7 +5,9 @@ import sqlglot
 from sqlglot import exp
 
 from lakebench.benchmarks import TPCDS
+from lakebench.engines.duckdb import DuckDB
 from lakebench.engines.sail import Sail
+from tests.conftest import _uninitialized_engine
 
 
 class _TestSail(Sail):
@@ -73,6 +75,45 @@ def test_sail_q12_uses_matching_scale_query_set(scale_factor, categories):
     assert "NULLIF" in query
     assert benchmark.query_scale_factor == scale_factor
     assert benchmark.engine.extended_engine_metadata["query_set_scale_matches_data"] == "true"
+
+
+@pytest.mark.parametrize("scale_factor", [1000, 10000])
+def test_sail_q90_guards_the_am_pm_ratio_denominator(scale_factor):
+    """Sail raises on division by zero; every other engine yields NULL.
+
+    ``pmc`` counts web sales in a two-hour window, so it is legitimately zero at
+    small scale factors rather than a sign of bad data.
+    """
+    benchmark = TPCDS(
+        engine=_TestSail(),
+        scenario_name="test",
+        scale_factor=scale_factor,
+        query_list=["q90"],
+        input_parquet_folder_uri="/tmp/tpcds",
+    )
+
+    query = benchmark._return_query_definition("q90")
+
+    assert "NULLIF(CAST(pmc AS DECIMAL(15, 4)), 0)" in query
+    # Only the denominator is guarded; the numerator must stay untouched.
+    assert query.count("NULLIF") == 1
+    assert "CAST(amc AS DECIMAL(15, 4)) / NULLIF(" in query
+    assert any("engine:" in rule for rule in benchmark._applied_query_normalizers["q90"])
+
+
+def test_q90_denominator_is_unguarded_for_other_engines():
+    benchmark = TPCDS(
+        engine=_uninitialized_engine(DuckDB),
+        scenario_name="test",
+        scale_factor=1000,
+        query_list=["q90"],
+        input_parquet_folder_uri="/tmp/tpcds",
+    )
+
+    query = benchmark._return_query_definition("q90")
+
+    assert "NULLIF" not in query
+    assert not any("engine:" in rule for rule in benchmark._applied_query_normalizers["q90"])
 
 
 @pytest.mark.parametrize(

@@ -148,6 +148,7 @@ affects nothing but parseability.
 |---|---|---|---|
 | Polars | `*` | `fold_constant_date_arithmetic` | spelling |
 | Sail | q12 | `_sail_q12_safe_denominator` | lowering |
+| Sail | q90 | `_sail_q90_safe_denominator` | lowering |
 
 **`fold_constant_date_arithmetic`** evaluates constant date offsets at compile
 time, because Polars' SQL frontend cannot parse interval syntax. It is shared
@@ -161,6 +162,16 @@ division-by-zero at runtime where other engines return NULL. The rule wraps the
 denominator in `NULLIF(..., 0)`, restoring NULL. Registered **only** for Sail:
 divide-by-zero protection is a functional change and is not applied where it is
 not needed.
+
+**`_sail_q90_safe_denominator`** — same accommodation, same reasoning, for q90's
+`am_pm_ratio`. The denominator is `CAST(pmc AS DECIMAL(15,4))`, where `pmc` is a
+`COUNT(*)` of web sales in a two-hour window under a narrow
+`wp_char_count`/`hd_dep_count` filter. That count is legitimately zero at small
+scale factors, so this is a property of the query, not of the data: Sail raises
+`AnalysisException: Division by zero` where Spark and DuckDB return NULL. The
+rule wraps the denominator in `NULLIF(..., 0)`, and asserts the expected
+`CAST(pmc ...)` shape so a future query-set refresh cannot silently skip the
+guard. Registered only for Sail.
 
 ---
 
