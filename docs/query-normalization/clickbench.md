@@ -40,9 +40,11 @@ Parsing q43 emits a harmless `WARNING:sqlglot:Unexpected interval unit: MINUTE`.
 
 ## Registered rules
 
-Four rules apply to all queries (`"*"`), plus one each for q29 and q43.
+Two rules apply globally (`_normalize_native_length` to all queries, and the q29 backreference fix), and three are registered to the `FabricDataWarehouse` engine in `ENGINE_QUERY_NORMALIZERS`, plus one target-neutral rule for q43.
 
-### `_resolve_positional_group_by` — T-SQL / Fabric — *spelling*
+The warehouse rules are keyed by engine class rather than gated on the target dialect, so an engine that renders `tsql` or `fabric` without Fabric Data Warehouse's particular limits is unaffected and a downstream integration can unregister them. See the [rule contract](README.md#rule-contract).
+
+### `_resolve_positional_group_by` — `FabricDataWarehouse` engine — *spelling*
 
 q35 uses ClickHouse's `GROUP BY 1`. T-SQL does not accept positional grouping
 keys, so the position is resolved against the projection list.
@@ -52,7 +54,7 @@ replaced: a constant contributes no grouping in any dialect, and T-SQL rejects
 grouping by a literal. If every key is dropped the `GROUP BY` clause is removed.
 An out-of-range position raises.
 
-### `_expand_group_by_aliases` — T-SQL / Fabric — *spelling*
+### `_expand_group_by_aliases` — `FabricDataWarehouse` engine — *spelling*
 
 T-SQL cannot group by a `SELECT` alias. Affects q19 (`m`), q29 (`k`), and q40
 (`Src`, `Dst`). The alias is replaced with its defining expression.
@@ -82,7 +84,7 @@ across engines, for two independent reasons:
 > `SQLGLOT_DIALECT = "duckdb"` but not an executor, so dialect-keyed
 > engine-specific functions are unsafe in general.
 
-### `_widen_integer_aggregates` — T-SQL / Fabric — *type widening*
+### `_widen_integer_aggregates` — `FabricDataWarehouse` engine — *type widening*
 
 Widens the **input** of `SUM` and `AVG` when the argument evaluates as integer
 arithmetic, determined by resolving columns against the DDL schema.
@@ -116,22 +118,18 @@ The MySQL case is the dangerous one — no error, just wrong grouping.
 `TimestampTrunc` renders correctly on all three. The rule raises if no
 truncation or no unit is found.
 
-### `_normalize_q29_host_extraction` — q29, per target — *lowering*
+### q29 host extraction — *lowering*
 
-q29 extracts a host with
-`REGEXP_REPLACE(Referer, '^https?://(?:www\.)?([^/]+)/.*$', '\1')`.
-The rule validates the pattern matches the source exactly, then branches:
+q29 extracts a host with `REGEXP_REPLACE(Referer, '^https?://(?:www\.)?([^/]+)/.*$', '\1')`. Both rules below validate the pattern matches the source exactly before acting, sharing a single `_q29_replacements()` validator.
 
-| Target | Action |
-|---|---|
-| spark, databricks, mysql | replacement string `\1` → `$1` (Java-style group references) |
-| tsql, fabric | lowered to native binary-collated string operations |
-| duckdb, others | unchanged |
+| Rule | Scope | Action |
+|---|---|---|
+| `_normalize_q29_backreference` | global, target-gated | spark, databricks, mysql: replacement string `\1` → `$1` (Java-style group references); duckdb and others unchanged |
+| `_lower_q29_host_extraction` | `FabricDataWarehouse` engine | lowered to native binary-collated string operations |
 
-**Why lower it for Fabric.** Fabric Warehouse's documented T-SQL surface area
-does not include `REGEXP_REPLACE`. Substituting a different expression that
-merely *resembles* host extraction would change the workload, so the fixed
-pattern is re-expressed with primitives instead.
+The backreference fix stays global and target-gated because it follows the regex engine each dialect maps onto — a renderer-family property spanning Spark, Databricks, and MySQL — rather than any one engine's limitation. The lowering is the opposite: it exists solely because of Fabric Data Warehouse's surface area.
+
+**Why lower it for Fabric Data Warehouse.** Fabric Data Warehouse's documented T-SQL surface area does not include `REGEXP_REPLACE`. Substituting a different expression that merely *resembles* host extraction would change the workload, so the fixed pattern is re-expressed with primitives instead.
 
 The lowering (`_lower_q29_referer`) reproduces the pattern's behavior rather
 than approximating it:
@@ -151,23 +149,15 @@ than approximating it:
 It is verified by **executing it against the source regex** over match,
 non-match, NULL, Unicode, and `www.`-backtracking inputs — not by inspection.
 
-> If your warehouse *does* expose `REGEXP_REPLACE`, unregister this rule for
-> `tsql`/`fabric` to stay closer to the upstream text. Availability was never
-> confirmed against a live Fabric Warehouse endpoint; the published T-SQL
-> surface-area documentation is the basis for the default.
+> If your warehouse *does* expose `REGEXP_REPLACE`, unregister `_lower_q29_host_extraction` from the engine's registry to stay closer to the upstream text. Availability was never confirmed against a live Fabric Data Warehouse endpoint; the published T-SQL surface-area documentation is the basis for the default.
 
 ---
 
 ## Divergence from earlier hand-written overrides
 
-These rules replace a set of hand-written Fabric Warehouse SQL files (q3, q4,
-q10, q19, q29, q30, q35, q40, q43). Four of them — q19, q35, q40, q43 — matched
-the registered rules' semantics exactly, which is independent confirmation that
-the rules address real Fabric limitations.
+These rules replace a set of hand-written Fabric Data Warehouse SQL files (q3, q4, q10, q19, q29, q30, q35, q40, q43). Four of them — q19, q35, q40, q43 — matched the registered rules' semantics exactly, which is independent confirmation that the rules address real Fabric limitations.
 
-Two intentional differences remain. **Both move results toward the ClickHouse
-source, so Fabric Warehouse numbers are not comparable to runs predating this
-change.**
+Two intentional differences remain. **Both move results toward the ClickHouse source, so Fabric Data Warehouse numbers are not comparable to runs predating this change.**
 
 ### q29 never stripped `www.`
 
@@ -211,27 +201,21 @@ either way.
 
 ## Verification
 
-- 43 queries × 5 dialects (DuckDB, Fabric, MySQL, Spark, T-SQL), pinned in
-  `tests/fixtures/clickbench_query_rendering.json` (215 fingerprints), verified
-  under both pinned SQLGlot versions.
-- 91 tests in `tests/test_clickbench_query_generation.py`, including the q29
-  regex-equivalence harness, the `www.`-stripping regression guard, and the
-  `AVG` real-type guard.
-- ScriptDom grammar validation: 0 errors across 172 parses (43 × `tsql`/`fabric`
-  × `All`/`SqlAzure`).
+- 43 queries × 4 dialects (DuckDB, Fabric, MySQL, Spark), pinned in `tests/fixtures/clickbench_query_rendering.json` (172 fingerprints), verified under both pinned SQLGlot versions. Fabric is rendered through the `FabricDataWarehouse` engine, so the engine-registered rules are pinned too.
+- `tests/test_clickbench_query_generation.py`, including the q29 regex-equivalence harness, the `www.`-stripping regression guard, and the `AVG` real-type guard.
+- ScriptDom grammar validation: 0 errors across 86 parses (43 × `fabric` × `All`/`SqlAzure`).
 - Live DuckDB execution of all 43 queries.
 - Source hashes checked against `source_manifest.json`.
 
-Not verified: live Spark or Fabric Warehouse execution.
+Not verified: live Spark or Fabric Data Warehouse execution.
 
 ### SQLGlot version-dependent rendering
 
-Six of the 215 fingerprints differ on SQLGlot 26.30.0 and are recorded under
-`overrides` in the fixture. Both differences are rendering-only:
+Five of the 172 fingerprints differ on SQLGlot 26.30.0 and are recorded under `overrides` in the fixture. Both differences are rendering-only:
 
 | Queries | 30.18.0 | 26.30.0 | Why it is equivalent |
 |---|---|---|---|
-| q23, all 5 dialects | `URL NOT LIKE '%.google.%'` | `NOT URL LIKE '%.google.%'` | Identical predicate, different placement of the negation; both are valid in every target dialect. |
+| q23, all 4 dialects | `URL NOT LIKE '%.google.%'` | `NOT URL LIKE '%.google.%'` | Identical predicate, different placement of the negation; both are valid in every target dialect. |
 | q29, DuckDB only | `REGEXP_REPLACE(..., '\1', 'g')` | `REGEXP_REPLACE(..., '\1')` | The pattern is fully anchored (`^...$`), so it can match at most once; the global flag cannot change the result. |
 
 Neither warrants a normalizer rule — a rule would pin one version's cosmetic

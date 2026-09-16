@@ -2,6 +2,7 @@ import logging
 
 from ...engines.daft import Daft
 from ...engines.duckdb import DuckDB
+from ...engines.fabric_data_warehouse import FabricDataWarehouse
 from ...engines.polars import Polars
 from ...engines.sail import Sail
 from ...engines.spark import Spark
@@ -77,6 +78,7 @@ class TPCDS(_LoadAndQuery):
         Daft: None,
         Polars: None,
         Sail: None,
+        FabricDataWarehouse: None,
     }
     BENCHMARK_NAME = "TPCDS"
     CANONICAL_QUERY_DIALECT = TPC_ANSI_READ_DIALECT

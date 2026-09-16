@@ -3,6 +3,7 @@ from typing import Dict, List, Tuple
 
 from sqlglot import exp
 
+from ...engines.fabric_data_warehouse import FabricDataWarehouse
 from ...engines.polars import Polars
 from ...engines.sail import Sail
 from .._load_and_query._query_normalizers import (
@@ -14,7 +15,7 @@ from .._load_and_query._query_normalizers import (
     parse_tpc_ansi_statements,
 )
 
-NORMALIZER_VERSION = "12"
+NORMALIZER_VERSION = "13"
 
 
 def _normalize_ansi_syntax(query: str) -> str:
@@ -86,8 +87,13 @@ def _normalize_tsql_sample_stddev(
     expression: exp.Expression,
     context: QueryNormalizerContext,
 ) -> None:
-    if context.target_dialect not in {"tsql", "fabric"}:
-        return
+    """Uses the population-form node whose T-SQL rendering is the sample stddev.
+
+    SQLGlot renders ``exp.Stddev`` as ``STDEV`` for the T-SQL family, which is
+    already the *sample* standard deviation and therefore matches the generated
+    ``stddev_samp``. ``exp.StddevSamp`` has no T-SQL rendering, so the node is
+    swapped rather than the function changed.
+    """
     for sample in list(expression.find_all(exp.StddevSamp)):
         sample.replace(exp.Stddev(**sample.copy().args))
 
@@ -222,8 +228,13 @@ def _normalize_q22_inventory_average(
     expression: exp.Expression,
     context: QueryNormalizerContext,
 ) -> None:
-    if context.target_dialect not in {"tsql", "fabric"}:
-        return
+    """Widens q22's inventory average, which T-SQL otherwise overflows.
+
+    ``AVG(inv_quantity_on_hand)`` accumulates in INT for the T-SQL family, and
+    the summed inventory exceeds that range at larger scale factors. Widening
+    the aggregate *input* is the only fix: casting the result cannot prevent an
+    overflow that happens inside the aggregate.
+    """
     averages = [projection.this for projection in expression.expressions if projection.alias == "qoh"]
     if len(averages) != 1 or not isinstance(averages[0], exp.Avg):
         raise ValueError("Expected q22 qoh projection to average inv_quantity_on_hand.")
@@ -260,17 +271,11 @@ QUERY_NORMALIZERS: Dict[str, Tuple[QueryNormalizer, ...]] = {
     "q9": (_normalize_q9_wide_counts,),
     "q12": (normalize_date_interval_arithmetic,),
     "q16": (normalize_date_interval_arithmetic,),
-    "q17": (_normalize_tsql_sample_stddev,),
     "q20": (normalize_date_interval_arithmetic,),
     "q21": (normalize_date_interval_arithmetic,),
-    "q22": (_normalize_q22_inventory_average,),
-    "q29": (_normalize_tsql_sample_stddev,),
     "q32": (normalize_date_interval_arithmetic,),
-    "q35": (_normalize_tsql_sample_stddev,),
     "q36": (_normalize_rollup_order_by,),
     "q37": (normalize_date_interval_arithmetic,),
-    "q39a": (_normalize_tsql_sample_stddev,),
-    "q39b": (_normalize_tsql_sample_stddev,),
     "q40": (normalize_date_interval_arithmetic,),
     "q58": (_normalize_q58,),
     "q70": (_normalize_rollup_order_by,),
@@ -336,6 +341,14 @@ ENGINE_QUERY_NORMALIZERS: EngineNormalizerRegistry = {
     Sail: {
         "q12": (_sail_q12_safe_denominator,),
         "q90": (_sail_q90_safe_denominator,),
+    },
+    FabricDataWarehouse: {
+        "q17": (_normalize_tsql_sample_stddev,),
+        "q22": (_normalize_q22_inventory_average,),
+        "q29": (_normalize_tsql_sample_stddev,),
+        "q35": (_normalize_tsql_sample_stddev,),
+        "q39a": (_normalize_tsql_sample_stddev,),
+        "q39b": (_normalize_tsql_sample_stddev,),
     },
 }
 

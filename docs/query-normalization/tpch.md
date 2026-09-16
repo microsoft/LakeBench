@@ -90,10 +90,7 @@ Two implementation details matter:
   (which renders unsupported T-SQL) and not a negative numeric literal (which
   renders invalid DuckDB). The `Neg` node is what makes DuckDB emit
   `INTERVAL (-n)`.
-- The rule **raises** on any shape it does not recognize. SQLGlot's `tsql`
-  reader accepting ANSI `INTERVAL` syntax does **not** mean Fabric Warehouse can
-  execute it, so silently passing unknown forms through would defer a failure to
-  runtime.
+- The rule **raises** on any shape it does not recognize. SQLGlot's `tsql` reader accepting ANSI `INTERVAL` syntax does **not** mean Fabric Data Warehouse can execute it, so silently passing unknown forms through would defer a failure to runtime.
 
 Dates, magnitudes, and direction are unchanged.
 
@@ -183,10 +180,8 @@ registration, and a test asserts it stays unregistered.
 
 ## Verification
 
-- 22 queries × 2 scale factors × 3 dialects (Spark, T-SQL, Fabric) = 132
-  renderings, pinned in `tests/fixtures/tpc_query_rendering.json` alongside
-  TPC-DS for a combined 750.
-- ScriptDom grammar validation of T-SQL and Fabric output.
+- 22 queries × 2 scale factors × 2 dialects (Spark, Fabric) = 88 renderings, pinned in `tests/fixtures/tpc_query_rendering.json` alongside TPC-DS for a combined 500. Fabric is rendered through the `FabricDataWarehouse` engine.
+- ScriptDom grammar validation of Fabric output.
 - DuckDB integration run: 22/22.
 - Rules asserted idempotent, and literal-preserving against the generated
   source.

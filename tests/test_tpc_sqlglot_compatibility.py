@@ -6,25 +6,29 @@ import pytest
 import sqlglot
 
 from lakebench.benchmarks import TPCDS, TPCH
-from lakebench.engines.duckdb import DuckDB
+from lakebench.engines.fabric_data_warehouse import FabricDataWarehouse
 from lakebench.engines.spark import Spark
 from tests.test_tpch_query_generation import _uninitialized_engine
 
 SNAPSHOTS = json.loads((Path(__file__).parent / "fixtures" / "tpc_query_rendering.json").read_text(encoding="utf-8"))
 
+# Rendering is covered through the engine that actually emits each dialect, so
+# the engine-registered normalizers are part of what the snapshots pin.
+SNAPSHOT_ENGINES = {"spark": Spark, "fabric": FabricDataWarehouse}
+
 
 @pytest.mark.parametrize("benchmark_class", [TPCH, TPCDS])
 @pytest.mark.parametrize("scale", [1000, 10000])
-@pytest.mark.parametrize("dialect", ["spark", "tsql", "fabric"])
+@pytest.mark.parametrize("dialect", sorted(SNAPSHOT_ENGINES))
 def test_tpc_runtime_sql_matches_reviewed_sqlglot_snapshots(benchmark_class, scale, dialect):
     assert sqlglot.__version__ in SNAPSHOTS["versions"], (
         "Review query-output differences before updating SQLGlot snapshots."
     )
     expected = dict(SNAPSHOTS["sha256"])
     expected.update(SNAPSHOTS["overrides"].get(sqlglot.__version__, {}))
-    engine = _uninitialized_engine(Spark if dialect == "spark" else DuckDB)
-    engine.SQLGLOT_DIALECT = dialect
+    engine = _uninitialized_engine(SNAPSHOT_ENGINES[dialect])
     engine.schema_name = "dbo"
+    assert engine.SQLGLOT_DIALECT == dialect
     benchmark = benchmark_class(
         engine=engine,
         scenario_name="sqlglot-snapshots",

@@ -7,6 +7,7 @@ from typing import Optional
 from ...engines.base import BaseEngine
 from ...engines.daft import Daft
 from ...engines.duckdb import DuckDB
+from ...engines.fabric_data_warehouse import FabricDataWarehouse
 from ...engines.polars import Polars
 from ...engines.sail import Sail
 from ...engines.spark import Spark
@@ -15,6 +16,7 @@ from ..base import BaseBenchmark, resolve_input_folder_uri
 from ..tpcds.tpcds import TPCDS
 from .engine_impl.daft import DaftELTBench
 from .engine_impl.duckdb import DuckDBELTBench
+from .engine_impl.fabric_data_warehouse import FabricDataWarehouseELTBench
 from .engine_impl.polars import PolarsELTBench
 from .engine_impl.sail import SailELTBench
 from .engine_impl.spark import SparkELTBench
@@ -53,6 +55,7 @@ class ELTBench(BaseBenchmark):
         Daft: DaftELTBench,
         Polars: PolarsELTBench,
         Sail: SailELTBench,
+        FabricDataWarehouse: FabricDataWarehouseELTBench,
     }
     MODE_REGISTRY = ["light"]
     COLUMN_NAME_MAPPING_REGISTRY = TPCDS.COLUMN_NAME_MAPPING_REGISTRY
