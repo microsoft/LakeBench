@@ -85,7 +85,7 @@ def test_tpch_native_uses_tbl_subcommand_and_keeps_num_threads(tmp_path, fake_ex
     assert "--row-group-bytes" not in args
 
 
-def test_native_outputs_are_normalized_without_compression_suffix(tmp_path, fake_executable):  # noqa: F811
+def test_native_outputs_use_official_generator_file_names(tmp_path, fake_executable):  # noqa: F811
     output_dir = tmp_path / "tpch"
     generator = _mock_generation(
         _TPCHRsDataGenerator(
@@ -98,7 +98,34 @@ def test_native_outputs_are_normalized_without_compression_suffix(tmp_path, fake
     )
     generator.run()
 
-    assert [path.name for path in (output_dir / "nation").glob("*")] == ["nation-00001.tbl"]
+    assert [path.name for path in (output_dir / "nation").glob("*")] == ["nation.tbl"]
+
+
+def test_native_part_names_match_official_parallel_generators():
+    tpch = _TPCHRsDataGenerator(scale_factor=1, target_folder_uri="/tmp/x", table_list=["orders"])
+    tpcds = _TPCDSRsDataGenerator(scale_factor=1, target_folder_uri="/tmp/x", table_list=["store_sales"])
+
+    # Serial dbgen/dsdgen write a single unsuffixed file per table.
+    assert tpch._native_output_file_name("orders", 1, 1) == "orders.tbl"
+    assert tpcds._native_output_file_name("store_sales", 1, 1) == "store_sales.dat"
+
+    # Parallel dbgen writes <table>.tbl.<step>; dsdgen writes <table>_<child>_<parallel>.dat.
+    assert tpch._native_output_file_name("orders", 3, 4) == "orders.tbl.3"
+    assert tpcds._native_output_file_name("store_sales", 3, 4) == "store_sales_3_4.dat"
+
+
+def test_native_globs_match_every_official_part_name():
+    from fnmatch import fnmatch
+
+    for benchmark, generator, table in (
+        (TPCH, _TPCHRsDataGenerator, "orders"),
+        (TPCDS, _TPCDSRsDataGenerator, "store_sales"),
+    ):
+        instance = generator(scale_factor=1, target_folder_uri="/tmp/x", table_list=[table])
+        for part_count in (1, 4):
+            for part_number in range(1, part_count + 1):
+                name = instance._native_output_file_name(table, part_number, part_count)
+                assert fnmatch(name, benchmark.NATIVE_FILE_GLOB), (benchmark.__name__, name)
 
 
 def test_native_sizing_applies_measured_expansion_factor(tmp_path, fake_executable):  # noqa: F811
@@ -180,6 +207,8 @@ def test_native_size_factors_cover_every_generated_table():
 def test_benchmarks_declare_native_extensions_matching_generators():
     assert TPCDS.NATIVE_FILE_EXTENSION == _TPCDSRsDataGenerator.NATIVE_FILE_EXTENSION == "dat"
     assert TPCH.NATIVE_FILE_EXTENSION == _TPCHRsDataGenerator.NATIVE_FILE_EXTENSION == "tbl"
+    assert TPCDS.NATIVE_FILE_GLOB == "*.dat"
+    assert TPCH.NATIVE_FILE_GLOB == "*.tbl*"
 
 
 def test_trailing_delimiter_column_is_distinct_from_every_benchmark_column():
@@ -235,7 +264,7 @@ def test_unsupported_engine_raises_rather_than_silently_loading_parquet():
             folder_uri="file:///tmp/in/nation",
             table_name="nation",
             columns=[],
-            file_extension="tbl",
+            file_pattern="*.tbl*",
         )
 
 

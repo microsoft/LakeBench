@@ -190,6 +190,9 @@ class _LoadAndQuery(BaseBenchmark):
     #: Extension the benchmark's generator uses for its native pipe-delimited output.
     #: ``None`` means the benchmark only supports Parquet input.
     NATIVE_FILE_EXTENSION: Optional[str] = None
+    #: Glob matching the benchmark's native files. TPC-H needs a trailing
+    #: wildcard because parallel ``dbgen`` output is named ``<table>.tbl.<step>``.
+    NATIVE_FILE_GLOB: Optional[str] = None
     INPUT_FORMATS = ("parquet", "native")
     VERSION = ""
 
@@ -483,7 +486,7 @@ class _LoadAndQuery(BaseBenchmark):
                         folder_uri=posixpath.join(self.input_parquet_folder_uri, f"{table_name}/"),
                         table_name=table_name,
                         columns=self._native_table_columns()[table_name],
-                        file_extension=self.NATIVE_FILE_EXTENSION,
+                        file_pattern=self.NATIVE_FILE_GLOB or f"*.{self.NATIVE_FILE_EXTENSION}",
                         table_is_precreated=True,
                         context_decorator=tc.context_decorator,
                         column_name_mapping=self.COLUMN_NAME_MAPPING_REGISTRY.get(table_name),

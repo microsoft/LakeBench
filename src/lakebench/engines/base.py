@@ -270,7 +270,7 @@ class BaseEngine(ABC):
         folder_uri: str,
         table_name: str,
         columns: "Sequence[tuple[str, Any]]",
-        file_extension: str,
+        file_pattern: str,
         table_is_precreated: bool = False,
         context_decorator: Optional[str] = None,
         column_name_mapping: Optional[Mapping[str, str]] = None,
@@ -291,8 +291,9 @@ class BaseEngine(ABC):
             Target Delta table name.
         columns : sequence of (str, sqlglot.exp.DataType)
             Ordered column names and types for the table.
-        file_extension : str
-            Native file extension, ``dat`` for TPC-DS and ``tbl`` for TPC-H.
+        file_pattern : str
+            Glob matching the table's native files, relative to ``folder_uri``,
+            for example ``*.dat`` for TPC-DS or ``*.tbl*`` for TPC-H.
         """
         raise NotImplementedError(
             f"{type(self).__name__} does not support loading the native delimited format. "

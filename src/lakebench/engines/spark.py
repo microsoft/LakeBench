@@ -408,7 +408,7 @@ class Spark(BaseEngine):
         folder_uri: str,
         table_name: str,
         columns,
-        file_extension: str,
+        file_pattern: str,
         table_is_precreated: bool = False,
         context_decorator: Optional[str] = None,
         column_name_mapping: Optional[Mapping[str, str]] = None,
@@ -426,7 +426,7 @@ class Spark(BaseEngine):
             .option("header", "false")
             .option("quote", "")
             .option("escape", "")
-            .csv(posixpath.join(folder_uri, f"*.{file_extension}"))
+            .csv(posixpath.join(folder_uri, file_pattern))
             .drop(TRAILING_DELIMITER_COLUMN)
         )
         resolved_mapping = self._resolve_column_name_mapping(table_name, df.columns, column_name_mapping)

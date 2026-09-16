@@ -217,3 +217,14 @@ class _TPCDSRsDataGenerator(_TpcgenRsDataGenerator):
         base_row_count = row_counts[0] if scale_factor < 1 else row_counts[1]
         count = int(fraction * (row_counts[scale_slot] - row_counts[scale_slot - 1])) + base_row_count
         return count or 1
+
+    def _native_output_file_name(self, table_name: str, part_number: int, part_count: int) -> str:
+        """Name native files the way official ``dsdgen`` does.
+
+        Serial ``dsdgen`` writes ``<table>.dat``; a parallel run started with
+        ``-parallel <streams> -child <stream>`` writes
+        ``<table>_<stream>_<streams>.dat``.
+        """
+        if part_count == 1:
+            return f"{table_name}.{self.NATIVE_FILE_EXTENSION}"
+        return f"{table_name}_{part_number}_{part_count}.{self.NATIVE_FILE_EXTENSION}"

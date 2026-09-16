@@ -273,8 +273,16 @@ benchmark.run(mode='load_and_query')
 ```
 
 _Notes:_
-- Output layout matches Parquet generation: `<root>/<table>/<table>-00001.tbl`
-  for TPC-H and `<root>/<table>/<table>-00001.dat` for TPC-DS.
+- Files are named exactly as the official tools name them, one folder per
+  table. A single-part table uses the serial name `<table>.tbl` / `<table>.dat`.
+  A multi-part table uses the parallel names: `dbgen`'s
+  `<table>.tbl.<step>` for TPC-H and `dsdgen`'s
+  `<table>_<child>_<parallel>.dat` for TPC-DS.
+- Neither `dsdgen` nor `dbgen` splits output on its own; parts exist only
+  because the operator runs the tool once per chunk, which is the normal way
+  to generate large scale factors. LakeBench picks the part count for you from
+  the estimated table size, so bigger scale factors naturally produce more
+  parts, matching what a parallel `dsdgen`/`dbgen` run would leave on disk.
 - The format carries no header and no types, so LakeBench derives each
   reader's schema from the benchmark's resolved DDL. As a result, native loads
   are always typed exactly as the DDL declares. The generator's Parquet output

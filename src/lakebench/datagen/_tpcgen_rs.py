@@ -209,9 +209,17 @@ class _TpcgenRsDataGenerator:
 
     def _output_file_name(self, table_name: str, part_number: int) -> str:
         if self.output_format == "native":
-            return f"{table_name}-{part_number:05d}.{self.NATIVE_FILE_EXTENSION}"
+            return self._native_output_file_name(table_name, part_number, self.parts_by_table[table_name])
         compression_name = self.compression.partition("(")[0].lower()
         return f"{table_name}-{part_number:05d}.{compression_name}.parquet"
+
+    def _native_output_file_name(self, table_name: str, part_number: int, part_count: int) -> str:
+        """Return the file name the benchmark's official generator would use.
+
+        Overridden per benchmark so native output is named exactly like
+        ``dsdgen``/``dbgen`` output.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not define native output file naming.")
 
     def _group_tables_by_generation_settings(self) -> Dict[Tuple[int, float], List[str]]:
         grouped_tables = defaultdict(list)

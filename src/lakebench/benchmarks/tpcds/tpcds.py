@@ -256,6 +256,7 @@ class TPCDS(_LoadAndQuery):
     # fmt: on
     DDL_FILE_NAME = "ddl_v4.0.0.sql"
     NATIVE_FILE_EXTENSION = "dat"
+    NATIVE_FILE_GLOB = "*.dat"
     DDL_VARIANT_REGISTRY = {
         "partitioned": "ddl_v4.0.0.partitioned.sql",
         "clustered": "ddl_v4.0.0.clustered.sql",

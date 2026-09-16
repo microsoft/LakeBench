@@ -60,3 +60,12 @@ class _TPCHRsDataGenerator(_TpcgenRsDataGenerator):
         "region": 1.149,
         "supplier": 1.858,
     }
+
+    def _native_output_file_name(self, table_name: str, part_number: int, part_count: int) -> str:
+        """Name native files the way official ``dbgen`` does.
+
+        Serial ``dbgen`` writes ``<table>.tbl``; a parallel run started with
+        ``-C <chunks> -S <step>`` writes ``<table>.tbl.<step>``.
+        """
+        base_name = f"{table_name}.{self.NATIVE_FILE_EXTENSION}"
+        return base_name if part_count == 1 else f"{base_name}.{part_number}"

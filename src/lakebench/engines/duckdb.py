@@ -111,7 +111,7 @@ class DuckDB(BaseEngine):
         folder_uri: str,
         table_name: str,
         columns,
-        file_extension: str,
+        file_pattern: str,
         table_is_precreated: bool = False,
         context_decorator: Optional[str] = None,
         column_name_mapping: Optional[Mapping[str, str]] = None,
@@ -126,7 +126,7 @@ class DuckDB(BaseEngine):
         # field than the table has columns.
         sql_types[TRAILING_DELIMITER_COLUMN] = "VARCHAR"
         column_spec = ", ".join(f"{quote_identifier(name)}: '{sql_type}'" for name, sql_type in sql_types.items())
-        glob_path = posixpath.join(folder_uri, f"*.{file_extension}")
+        glob_path = posixpath.join(folder_uri, file_pattern)
         relation = self.duckdb.sql(
             f"""
             FROM read_csv(

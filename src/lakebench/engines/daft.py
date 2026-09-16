@@ -87,7 +87,7 @@ class Daft(BaseEngine):
         folder_uri: str,
         table_name: str,
         columns,
-        file_extension: str,
+        file_pattern: str,
         table_is_precreated: bool = False,
         context_decorator: Optional[str] = None,
         column_name_mapping: Optional[Mapping[str, str]] = None,
@@ -109,7 +109,7 @@ class Daft(BaseEngine):
         # field than the table has columns.
         schema[TRAILING_DELIMITER_COLUMN] = self.daft.DataType.string()
         table_df = self.daft.read_csv(
-            to_local_path(posixpath.join(folder_uri, f"*.{file_extension}")),
+            to_local_path(posixpath.join(folder_uri, file_pattern)),
             infer_schema=False,
             schema=schema,
             delimiter=NATIVE_DELIMITER,

@@ -82,7 +82,7 @@ class Polars(BaseEngine):
         folder_uri: str,
         table_name: str,
         columns,
-        file_extension: str,
+        file_pattern: str,
         table_is_precreated: bool = False,
         context_decorator: Optional[str] = None,
         column_name_mapping: Optional[Mapping[str, str]] = None,
@@ -95,7 +95,7 @@ class Polars(BaseEngine):
         # field than the table has columns.
         read_schema = self.pl.Schema(list(polars_schema.items()) + [(TRAILING_DELIMITER_COLUMN, self.pl.String)])
         table_df = self.pl.scan_csv(
-            posixpath.join(folder_uri, f"*.{file_extension}"),
+            posixpath.join(folder_uri, file_pattern),
             separator=NATIVE_DELIMITER,
             has_header=False,
             quote_char=None,
