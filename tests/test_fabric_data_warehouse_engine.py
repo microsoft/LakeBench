@@ -4,6 +4,8 @@ A live warehouse needs ODBC Driver 18 and a Fabric identity, so these tests driv
 the SQL-building and error-classification logic against an uninitialized engine.
 """
 
+import inspect
+
 import pytest
 
 from lakebench.benchmarks import TPCDS, TPCH, ClickBench, ELTBench
@@ -105,6 +107,18 @@ def test_engine_declares_its_platform_capabilities():
     assert FabricDataWarehouse.SUPPORTS_MOUNT_PATH is False
     # COPY INTO for CSV has no AUTO_CREATE_TABLE, so the DDL must run first.
     assert FabricDataWarehouse.SUPPORTS_SCHEMA_PREP is True
+
+
+def test_job_cost_is_not_reported():
+    # Capacity cost does not attribute to an individual query or load, so the
+    # engine deliberately publishes no hourly rate and leaves the cost unset.
+    assert "cost_per_hour" not in inspect.signature(FabricDataWarehouse.__init__).parameters
+    assert not hasattr(FabricDataWarehouse, "_get_cost_per_hour")
+
+    engine = _uninitialized_engine(FabricDataWarehouse)
+    assert engine.cost_per_hour is None
+    assert engine.cost_per_vcore_hour is None
+    assert engine.get_job_cost(3_600_000) is None
 
 
 @pytest.mark.parametrize(

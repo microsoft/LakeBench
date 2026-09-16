@@ -31,6 +31,12 @@ class FabricDataWarehouse(BaseEngine):
         Indicates if the engine supports schema preparation (creation of empty table with defined schema)
     SUPPORTS_MOUNT_PATH : bool
         Indicates if the engine supports mount URIs (e.g., /mnt/...)
+
+    Notes
+    -----
+    Job cost is not reported. Capacity cost does not reliably attribute to an
+    individual query or load, so `estimated_retail_job_cost` is left unset
+    rather than populated with a misleading figure.
     """
 
     SQLGLOT_DIALECT = "fabric"
@@ -65,7 +71,6 @@ class FabricDataWarehouse(BaseEngine):
         warehouse_name: str,
         warehouse_server: str,
         schema_name: str,
-        cost_per_hour: Optional[float] = None,
     ):
         """
         Parameters
@@ -76,9 +81,6 @@ class FabricDataWarehouse(BaseEngine):
             The SQL connection string of the Fabric Data Warehouse.
         schema_name : str
             The name of the schema to use within the warehouse.
-        cost_per_hour : float, optional
-            The hourly cost of the Fabric SKU used. If None, the Fabric SKU cost in the
-            region is auto calculated.
         """
         super().__init__()
 
@@ -91,8 +93,7 @@ class FabricDataWarehouse(BaseEngine):
         self.schema_name = schema_name
         self._create_connection()
 
-        self.fabric_sku, sku_cost_per_hour = self._get_cost_per_hour()
-        self.cost_per_hour = cost_per_hour if cost_per_hour is not None else sku_cost_per_hour
+        self.fabric_sku = self._get_fabric_sku()
 
         self.version, version_str = self._get_sql_version()
 
@@ -106,7 +107,6 @@ class FabricDataWarehouse(BaseEngine):
                 "warehouse_server": warehouse_server,
                 "warehouse_name": warehouse_name,
                 "fabric_sku": self.fabric_sku,
-                "cost_per_hour": self.cost_per_hour,
                 "version": version_str,
                 "is_vorder_enabled": is_vorder_enabled,
             }
@@ -118,17 +118,14 @@ class FabricDataWarehouse(BaseEngine):
         version = match.group(0) if match else "Unknown"
         return version, version_str
 
-    def _get_cost_per_hour(self):
-        import requests
-
+    def _get_fabric_sku(self) -> str:
         capacities_response = self._fabric_rest.get("/v1/capacities")
         if not capacities_response.ok:
             logger.warning(
-                "Unable to retrieve Fabric capacity metadata; SKU and automatic "
-                "cost calculation are unavailable (HTTP %s).",
+                "Unable to retrieve Fabric capacity metadata; the SKU is unavailable (HTTP %s).",
                 capacities_response.status_code,
             )
-            return "Unknown", None
+            return "Unknown"
 
         capacities = capacities_response.json().get("value", [])
         capacity = next(
@@ -136,53 +133,15 @@ class FabricDataWarehouse(BaseEngine):
             None,
         )
         if capacity is None:
-            logger.warning(
-                "The workspace capacity is not visible to the current identity; "
-                "SKU and automatic cost calculation are unavailable. Pass "
-                "`cost_per_hour` explicitly if cost reporting is required."
-            )
-            return "Unknown", None
+            logger.warning("The workspace capacity is not visible to the current identity; the SKU is unavailable.")
+            return "Unknown"
 
         fabric_sku = capacity.get("sku")
         if not fabric_sku:
-            logger.warning("Fabric capacity metadata did not include a SKU; automatic cost calculation is unavailable.")
-            return "Unknown", None
+            logger.warning("Fabric capacity metadata did not include a SKU.")
+            return "Unknown"
 
-        if fabric_sku[:2] == "FT":
-            capacity_units = 64
-        elif fabric_sku[:1] == "F":
-            capacity_units = int(fabric_sku.replace("F", ""))
-        elif fabric_sku[:1] == "P":
-            capacity_units = int(fabric_sku.replace("P", "")) * 64
-        else:
-            return fabric_sku, None
-
-        query = (
-            f"armRegionName eq '{self.region}' "
-            "and serviceName eq 'Microsoft Fabric' "
-            "and skuName eq 'Data Warehouse Capacity Usage'"
-        )
-        price_response = requests.get(
-            "https://prices.azure.com/api/retail/prices",
-            params={"$filter": query},
-            timeout=30,
-        )
-        if not price_response.ok:
-            logger.warning(
-                "Unable to retrieve Azure retail pricing; automatic cost calculation is unavailable (HTTP %s).",
-                price_response.status_code,
-            )
-            return fabric_sku, None
-
-        price_items = price_response.json().get("Items", [])
-        if not price_items or "retailPrice" not in price_items[0]:
-            logger.warning(
-                "Azure retail pricing did not return a Fabric Data Warehouse rate; "
-                "automatic cost calculation is unavailable."
-            )
-            return fabric_sku, None
-
-        return fabric_sku, price_items[0]["retailPrice"] * capacity_units
+        return fabric_sku
 
     def _create_connection(self):
         import sqlalchemy as sa
