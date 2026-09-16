@@ -43,6 +43,7 @@ def timer(
     class TimerContext:
         def __init__(self, label: str, iteration: int):
             self.execution_telemetry = {}
+            self.sql_text = None
             self.context_decorator = f"{label} [i:{iteration}]"
 
     timer_context = TimerContext(timer_label, iteration)
@@ -101,6 +102,7 @@ def timer(
                 success,
                 f"{error_type}: {error_message}" if error_message else "",
                 timer_context.execution_telemetry,
+                timer_context.sql_text if isinstance(timer_context.sql_text, str) else None,
             )
         )
 

@@ -1,0 +1,6 @@
+# Canonical benchmark sources are byte-hashed for provenance (see the
+# generation/source manifests). Their committed bytes must be identical on every
+# platform, so pin LF and never let core.autocrlf rewrite them on checkout.
+src/lakebench/benchmarks/**/resources/queries/**/*.sql text eol=lf
+src/lakebench/benchmarks/**/resources/queries/**/*.json text eol=lf
+src/lakebench/benchmarks/**/resources/ddl/**/*.sql text eol=lf

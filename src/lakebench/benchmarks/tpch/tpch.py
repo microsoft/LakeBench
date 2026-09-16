@@ -1,9 +1,27 @@
+import logging
+
 from ...engines.daft import Daft
 from ...engines.duckdb import DuckDB
 from ...engines.polars import Polars
 from ...engines.sail import Sail
 from ...engines.spark import Spark
 from .._load_and_query import _LoadAndQuery
+from .._load_and_query._query_normalizers import TPC_ANSI_READ_DIALECT
+from ._query_normalizers import (
+    ENGINE_QUERY_NORMALIZERS as TPCH_ENGINE_QUERY_NORMALIZERS,
+)
+from ._query_normalizers import (
+    NORMALIZER_VERSION,
+    parse_tpch_ansi_query,
+)
+from ._query_normalizers import (
+    QUERY_NORMALIZERS as TPCH_QUERY_NORMALIZERS,
+)
+from ._query_normalizers import (
+    SOURCE_NORMALIZERS as TPCH_SOURCE_NORMALIZERS,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class TPCH(_LoadAndQuery):
@@ -51,6 +69,14 @@ class TPCH(_LoadAndQuery):
         Sail: None,
     }
     BENCHMARK_NAME = "TPCH"
+    CANONICAL_QUERY_DIALECT = TPC_ANSI_READ_DIALECT
+    ALLOW_QUERY_OVERRIDES = False
+    SOURCE_NORMALIZERS = TPCH_SOURCE_NORMALIZERS
+    QUERY_NORMALIZERS = TPCH_QUERY_NORMALIZERS
+    ENGINE_QUERY_NORMALIZERS = TPCH_ENGINE_QUERY_NORMALIZERS
+    QUERY_SET_SCALE_FACTORS = (1000, 10000)
+    QUERY_SET_FALLBACK_SCALE_FACTOR = 1000
+    QUERY_SET_RNG_SEED = 19620718
     TABLE_REGISTRY = ["customer", "lineitem", "nation", "orders", "part", "partsupp", "region", "supplier"]
     QUERY_REGISTRY = [
         "q1",
@@ -170,3 +196,37 @@ class TPCH(_LoadAndQuery):
         "region": ["r_regionkey", "r_name"],
         "supplier": ["s_comment", "s_suppkey", "s_name", "s_nationkey"],
     }
+
+    def _configure_query_resources(self) -> None:
+        query_scale_factor = (
+            self.scale_factor
+            if self.scale_factor in self.QUERY_SET_SCALE_FACTORS
+            else self.QUERY_SET_FALLBACK_SCALE_FACTOR
+        )
+        scale_matches = self.scale_factor == query_scale_factor
+        self.query_scale_factor = query_scale_factor
+        self.engine.extended_engine_metadata.update(
+            {
+                "query_set_tpch_version": self.VERSION,
+                "query_set_scale_factor": str(query_scale_factor),
+                "query_set_rng_seed": str(self.QUERY_SET_RNG_SEED),
+                "query_set_stream": "0",
+                "query_set_scale_matches_data": str(scale_matches).lower(),
+                "query_set_normalizer_version": NORMALIZER_VERSION,
+            }
+        )
+        if not scale_matches:
+            logger.warning(
+                "TPC-H scale factor %s does not have a matching TPC-H %s query set. "
+                "Falling back to SF%s stream 0 substitutions; query selectivity does not "
+                "match the requested dataset scale.",
+                self.scale_factor,
+                self.VERSION,
+                query_scale_factor,
+            )
+
+    def _canonical_query_resource_package(self, benchmark_name: str) -> str:
+        return f"lakebench.benchmarks.{benchmark_name}.resources.queries.canonical.sf{self.query_scale_factor}"
+
+    def _parse_canonical_query(self, query_name: str, query: str):
+        return parse_tpch_ansi_query(query)

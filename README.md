@@ -336,33 +336,79 @@ benchmark.run()
 
 ## Managing Queries Over Various Dialects
 
-LakeBench supports multiple engines that each leverage different SQL dialects and capabilities. To handle this diversity while maintaining consistency, LakeBench employs a **hierarchical query resolution strategy** that balances automated transpilation with engine-specific customization.
+LakeBench uses SQLGlot to translate benchmark queries to each engine's dialect. Every benchmark starts from an immutable upstream SQL source; compatibility changes are registered AST rules, not alternate SQL files.
+
+Each benchmark's full rule inventory — what each rule does, why it exists, and what it does and does not change — is documented on its own page:
+
+| Benchmark | Source of truth | Reader | Normalization rules |
+|---|---|---|---|
+| TPC-H | `qgen` ANSI output, SF1000 / SF10000, stream 0 | `tsql` | [docs/query-normalization/tpch.md](docs/query-normalization/tpch.md) |
+| TPC-DS | `dsqgen` ANSI output, SF1000 / SF10000, stream 0 | `tsql` | [docs/query-normalization/tpcds.md](docs/query-normalization/tpcds.md) |
+| ClickBench | Upstream `clickhouse/queries.sql`, pinned commit | `clickhouse` | [docs/query-normalization/clickbench.md](docs/query-normalization/clickbench.md) |
+
+See [docs/query-normalization/](docs/query-normalization/README.md) for the shared pipeline, the rule contract, and guidance on adding a rule.
 
 ### Query Resolution Strategy
 
-LakeBench uses a three-tier fallback approach for each query:
+Runtime compilation proceeds in this order for every benchmark:
 
-1. **Engine-Specific Override** (if exists - rare)
-   - Custom queries tailored for specific engine limitations or optimizations
-   - Example: `src/lakebench/benchmarks/tpch/resources/queries/daft/q14.sql` -> Daft is generally sensitive to multiplying decimals and thus requires casing to `DOUBLE` or managing specific decimal types.
+1. Load the canonical source and parse it with the benchmark's `CANONICAL_QUERY_DIALECT`.
+2. Apply `SOURCE_NORMALIZERS` to parsed statement bundles, for lowerings that must happen before the bundle is reduced to a single query.
+3. Apply `QUERY_NORMALIZERS`: shared `"*"` rules first, then rules for the query ID.
+4. Apply `ENGINE_QUERY_NORMALIZERS` registered for the engine class and its ancestors, base classes first. Each class uses the same `"*"`-then-query convention.
+5. Qualify catalog/schema references and render the AST directly to the engine's `SQLGLOT_DIALECT`, without an intermediate SQL serialization.
 
-2. **Parent Engine Class Override** (if exists - rare)
-   - Shared customizations for engine families, i.e. Spark (_not yet leveraged by any engine and benchmark combinations_).
-   - Example: `src/lakebench/benchmarks/tpch/resources/queries/spark/q14.sql`
+Join normalization is not registered by default for any benchmark; WHERE join predicates remain in place even when SQLGlot renders comma joins as CROSS JOIN. The shared join-normalization function remains available for explicit registration.
 
-3. **Canonical + Transpilation** (fallback - common)
-   - SparkSQL canonical queries are automatically transpiled via SQLGlot. Each engine registers its `SQLGLOT_DIALECT` constant, enabling automatic transpilation when custom queries aren't needed.
-   - Example: `src/lakebench/benchmarks/tpch/resources/queries/canonical/q14.sql`
+Static TPC query sets currently cover SF1000 and SF10000. Other data scales log a warning and use SF1000 query substitutions; result metadata records the mismatch via `query_set_scale_matches_data`.
 
-In all cases, tables are automatically qualified with the catalog and schema if applicable to the engine class.
+**Breaking change in v2:** engine, parent-engine, and third-party SQL-file query overrides are no longer searched for any benchmark, including ClickBench. Existing overrides must be migrated to registered structural rules. Engine-specific DDL resolution is unchanged. ClickBench results on Fabric Warehouse are **not** comparable to runs predating this change — see [the ClickBench page](docs/query-normalization/clickbench.md#divergence-from-earlier-hand-written-overrides).
 
-### Why This Approach?
+### SQLGlot Upgrade Guardrails
 
-**Real-World Engine Limitations**: Engines like Daft lack support for `DATE_ADD`, `CROSS JOIN`, subqueries, and non-equi joins. Polars doesn't support non-equi joins. Rather than restricting all queries to the lowest common denominator, LakeBench allows targeted workarounds.
+SQLGlot is pinned to **30.18.0 on Python 3.9+**. Python 3.8 retains **26.30.0**
+because newer SQLGlot releases require Python 3.9+. The AST adapters support both
+versions, including FROM/WITH argument names, DROP VIEW target lists, and GROUPING
+function nodes.
 
-**Automated Transpilation Where Possible**: For most queries, SQLGlot can successfully transpile SparkSQL to engine-specific dialects (DuckDB, Postgres, SQLServer, etc.), eliminating manual maintenance overhead and a proliferation of query variants.
+`tests/test_tpc_sqlglot_compatibility.py` checks reviewed output fingerprints in
+`tests/fixtures/tpc_query_rendering.json` for all **750** TPC-H/TPC-DS renderings
+(both static scales, Spark, T-SQL, and Fabric, on both pinned SQLGlot versions).
+Review actual SQL differences before
+refreshing these fingerprints; do not regenerate them just to clear a failure.
+The 26.30.0-to-30.18.0 comparison found 472 identical outputs and 28 differences
+limited to equivalent NOT LIKE spelling and generated subquery alias names.
+Generated source hashes remain independently checked against their manifests.
 
-**Expert Optimization**: Engine specific subject matter experts can contribute PRs with optimized query variants that reasonably follow the specification of the benchmark author (i.e. TPC).
+The upgrade does not make the existing compatibility rules redundant. The
+built-in Fabric dialect is a suitable Warehouse target, but does not replace
+them — see the per-benchmark pages linked above for what each rule still covers.
+
+Case-sensitive binding checks intentionally bypass identifier normalization so
+they catch mismatches like SR_FEE versus the declared sr_fee column. Successful
+grammar parsing alone does not establish Warehouse execution support.
+
+### Registering Compatibility Rules
+
+Registries live in each benchmark's `_query_normalizers.py` and are bound on the benchmark class. AST rules accept `(expression, context)`, modify the supplied copied AST, and return `None`. Source rules instead receive a mutable list of parsed statements; after source lowering, exactly one query must remain. Rules must validate expected shapes and raise explicitly rather than substitute another query.
+
+`context.dialect` is the source parser dialect; `context.target_dialect` is the
+engine's output dialect. Target-specific rules must inspect the latter. The
+runtime supplies it to both source and query rules; direct callers of
+`apply_query_normalizers` can pass `target_dialect` explicitly.
+
+For example, an engine integration can extend the TPC-H engine registry:
+
+```python
+TPCH.ENGINE_QUERY_NORMALIZERS = {
+    **TPCH.ENGINE_QUERY_NORMALIZERS,
+    MyEngine: {"q14": (normalize_q14_for_my_engine,)},
+}
+```
+
+Preserve generated literals and make AST rules idempotent. Current engine accommodations include Daft DOUBLE arithmetic casts in TPC-H q1/q8/q9/q14 and Sail's NULLIF denominator in TPC-DS q12. These are **semantic accommodations** (numeric precision and division-by-zero behavior), not merely syntax fixes. Applied rule identifiers are recorded per query in `execution_telemetry["query_normalization_rules"]`, alongside the benchmark's normalizer version in engine metadata. Successful transpilation alone does not establish specification equivalence or engine execution support.
+
+Full guidance on writing and registering a rule — including bumping `NORMALIZER_VERSION` and refreshing rendering fingerprints — is in [docs/query-normalization/](docs/query-normalization/README.md#adding-a-rule).
 
 ### Viewing Generated Queries
 
@@ -374,10 +420,21 @@ query_str = benchmark._return_query_definition('q14')
 print(query_str)  # Shows final transpiled/customized query
 ```
 
-This approach ensures **consistency** (same business logic across engines), **accessibility** (as much as possible, engines work out-of-the-box), and **flexibility** (custom optimizations where needed).
+All engines now receive the same selected TPC source substitutions, with compatibility changes explicit and reviewable.
 
 # 📬 Feedback / Contributions
 Got ideas? Found a bug? Want to contribute a benchmark or engine wrapper? PRs and issues are welcome!
+
+
+# Licensing and Third-Party Material
+
+LakeBench is released under the MIT License (see [`LICENSE`](LICENSE)). It also redistributes material from third-party projects that remain under their own licenses and are **not** covered by MIT. These are itemized, with attribution and a description of modifications, in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
+
+Most notably:
+
+- **ClickBench** queries and schema come from [ClickHouse/ClickBench](https://github.com/ClickHouse/ClickBench) (Alexey Milovidov and the ClickHouse team, 2022), which is published under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). The queries are vendored verbatim from a pinned upstream commit; provenance and hashes are recorded in [`PROVENANCE.md`](src/lakebench/benchmarks/clickbench/resources/queries/canonical/PROVENANCE.md) and `source_manifest.json` alongside them. If the NonCommercial or ShareAlike terms matter for your use, review them before redistributing LakeBench or building on it.
+- **tpcgen-rs** is bundled as a prebuilt binary in platform wheels under Apache 2.0.
+- **TPC-H / TPC-DS** tools kits, templates, and generator executables are *not* redistributed; only generated query text and a reproducibility manifest are checked in. TPC-H and TPC-DS are trademarks of the [Transaction Processing Performance Council](https://www.tpc.org), and LakeBench results are not audited, endorsed, or comparable to published TPC results.
 
 
 # Acknowledgement of Other _LakeBench_ Projects

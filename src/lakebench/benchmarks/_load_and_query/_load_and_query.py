@@ -1,7 +1,10 @@
 import importlib.resources
 import inspect
+import json
 import posixpath
-from typing import Dict, List, Literal, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Union
+
+import sqlglot
 
 from ...engines.base import BaseEngine
 from ...engines.daft import Daft
@@ -11,6 +14,18 @@ from ...engines.sail import Sail
 from ...engines.spark import Spark
 from ...utils.query_utils import get_table_name_from_ddl, transpile_and_qualify_query
 from ..base import BaseBenchmark
+from ._query_normalizers import (
+    EngineNormalizerRegistry,
+    QueryNormalizerContext,
+    QueryNormalizerRegistry,
+    SourceNormalizerRegistry,
+    apply_query_normalizers,
+    apply_source_normalizers,
+    load_query_schema,
+)
+
+if TYPE_CHECKING:
+    from sqlglot import Expression
 
 
 class _LoadAndQuery(BaseBenchmark):
@@ -31,6 +46,11 @@ class _LoadAndQuery(BaseBenchmark):
     QUERY_STREAMS = ()
     QUERY_TEMPLATE_VARIANTS = {}
     BENCHMARK_NAME = ""
+    CANONICAL_QUERY_DIALECT = "spark"
+    ALLOW_QUERY_OVERRIDES = True
+    QUERY_NORMALIZERS: QueryNormalizerRegistry = {}
+    SOURCE_NORMALIZERS: SourceNormalizerRegistry = {}
+    ENGINE_QUERY_NORMALIZERS: EngineNormalizerRegistry = {}
     TABLE_REGISTRY = [
         "call_center",
         "catalog_page",
@@ -198,6 +218,7 @@ class _LoadAndQuery(BaseBenchmark):
 
         self.scale_factor = scale_factor
         super().__init__(engine, scenario_name, input_parquet_folder_uri, result_table_uri, save_results, run_id)
+        self._configure_query_resources()
 
         if ddl_override is not None:
             ddl_variant_label = "custom"
@@ -460,16 +481,22 @@ class _LoadAndQuery(BaseBenchmark):
                 engine=self.engine,
                 progress=progress,
             ) as tc:
-                if self.benchmark_impl is not None:
-                    # If a specific benchmark implementation is defined, use it to perform the query
-                    tc.execution_telemetry = self.benchmark_impl.execute_sql_query(
-                        prepped_query, context_decorator=tc.context_decorator
-                    )
-                else:
-                    # Otherwise, use the generic query method
-                    tc.execution_telemetry = self.engine.execute_sql_query(
-                        prepped_query, context_decorator=tc.context_decorator
-                    )
+                tc.sql_text = prepped_query
+                try:
+                    if self.benchmark_impl is not None:
+                        tc.execution_telemetry = self.benchmark_impl.execute_sql_query(
+                            prepped_query, context_decorator=tc.context_decorator
+                        )
+                    else:
+                        tc.execution_telemetry = self.engine.execute_sql_query(
+                            prepped_query, context_decorator=tc.context_decorator
+                        )
+                finally:
+                    rules = getattr(self, "_applied_query_normalizers", {}).get(query_name)
+                    if rules:
+                        if not isinstance(tc.execution_telemetry, dict):
+                            tc.execution_telemetry = {}
+                        tc.execution_telemetry["query_normalization_rules"] = json.dumps(rules)
         self.post_results()
 
     def _run_power_test(self):
@@ -517,6 +544,84 @@ class _LoadAndQuery(BaseBenchmark):
             )
         return query_plan
 
+    def _configure_query_resources(self) -> None:
+        """Configures benchmark-specific query resource selection."""
+
+    def _engine_query_resource_packages(
+        self,
+        engine_root_lib_name: str,
+        benchmark_name: str,
+        engine_class_name: str,
+        parent_class_name: str,
+    ):
+        return (
+            f"{engine_root_lib_name}.benchmarks.{benchmark_name}.resources.queries.{engine_class_name}",
+            f"lakebench.benchmarks.{benchmark_name}.resources.queries.{parent_class_name}",
+        )
+
+    def _canonical_query_resource_package(self, benchmark_name: str) -> str:
+        return f"lakebench.benchmarks.{benchmark_name}.resources.queries.canonical"
+
+    def _parse_canonical_query(self, query_name: str, query: str) -> List["Expression"]:
+        return [
+            statement
+            for statement in sqlglot.parse(query, read=self.CANONICAL_QUERY_DIALECT)
+            if statement is not None and not isinstance(statement, sqlglot.exp.Semicolon)
+        ]
+
+    def _query_normalization_schema(self) -> Dict[str, Dict[str, str]]:
+        schema = getattr(self, "_cached_query_normalization_schema", None)
+        if schema is not None:
+            return schema
+
+        benchmark_name = self.__class__.__name__.lower()
+        ddl_file_name = self.DDL_VARIANT_REGISTRY.get("simple", self.DDL_FILE_NAME)
+        with importlib.resources.path(
+            f"lakebench.benchmarks.{benchmark_name}.resources.ddl.canonical",
+            ddl_file_name,
+        ) as ddl_path:
+            with open(ddl_path, "r") as ddl_file:
+                ddl = ddl_file.read()
+        schema = load_query_schema(ddl)
+        self._cached_query_normalization_schema = schema
+        return schema
+
+    def _normalize_canonical_query(
+        self,
+        query_name: str,
+        query: str,
+    ) -> "Expression":
+        """Lowers source statements, then applies canonical and engine AST rules."""
+        applied_rules = []
+        schema = self._query_normalization_schema()
+        expression = apply_source_normalizers(
+            statements=self._parse_canonical_query(query_name, query),
+            context=QueryNormalizerContext(
+                query_name,
+                schema,
+                self.CANONICAL_QUERY_DIALECT,
+                query,
+                target_dialect=self.engine.SQLGLOT_DIALECT,
+            ),
+            registry=self.SOURCE_NORMALIZERS,
+            applied_rules=applied_rules,
+        )
+        normalized = apply_query_normalizers(
+            expression=expression,
+            query_name=query_name,
+            schema=schema,
+            dialect=self.CANONICAL_QUERY_DIALECT,
+            query_normalizers=self.QUERY_NORMALIZERS,
+            engine_type=type(self.engine),
+            engine_normalizers=self.ENGINE_QUERY_NORMALIZERS,
+            applied_rules=applied_rules,
+            target_dialect=self.engine.SQLGLOT_DIALECT,
+        )
+        if not hasattr(self, "_applied_query_normalizers"):
+            self._applied_query_normalizers = {}
+        self._applied_query_normalizers[query_name] = applied_rules
+        return normalized
+
     def _return_query_definition(self, query_name: str) -> str:
         """
         Returns the SQL definition for a given query name.
@@ -537,30 +642,35 @@ class _LoadAndQuery(BaseBenchmark):
         engine_root_lib_name = self.engine.__class__.__module__.split(".")[0]
         from_dialect = self.engine.SQLGLOT_DIALECT
 
-        try:
-            # Try to load engine-specific query first
+        query = None
+        resource_packages = (
+            self._engine_query_resource_packages(
+                engine_root_lib_name,
+                benchmark_name,
+                engine_class_name,
+                parent_class_name,
+            )
+            if self.ALLOW_QUERY_OVERRIDES
+            else ()
+        )
+        for resource_package in resource_packages:
+            try:
+                with importlib.resources.path(resource_package, f"{query_name}.sql") as query_path:
+                    with open(query_path, "r") as query_file:
+                        query = query_file.read()
+                break
+            except (ModuleNotFoundError, FileNotFoundError):
+                continue
+
+        if query is None:
             with importlib.resources.path(
-                f"{engine_root_lib_name}.benchmarks.{benchmark_name}.resources.queries.{engine_class_name}",
+                self._canonical_query_resource_package(benchmark_name),
                 f"{query_name}.sql",
             ) as query_path:
                 with open(query_path, "r") as query_file:
                     query = query_file.read()
-        except (ModuleNotFoundError, FileNotFoundError):
-            # Try parent engine class name if engine-specific fails
-            try:
-                with importlib.resources.path(
-                    f"lakebench.benchmarks.{benchmark_name}.resources.queries.{parent_class_name}", f"{query_name}.sql"
-                ) as query_path:
-                    with open(query_path, "r") as query_file:
-                        query = query_file.read()
-            except (ModuleNotFoundError, FileNotFoundError):
-                # Fall back to canonical query
-                with importlib.resources.path(
-                    f"lakebench.benchmarks.{benchmark_name}.resources.queries.canonical", f"{query_name}.sql"
-                ) as query_path:
-                    with open(query_path, "r") as query_file:
-                        query = query_file.read()
-                from_dialect = "spark"
+            query = self._normalize_canonical_query(query_name, query)
+            from_dialect = self.CANONICAL_QUERY_DIALECT
 
         prepped_query = transpile_and_qualify_query(
             query=query,

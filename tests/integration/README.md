@@ -92,7 +92,7 @@ declared as conflicting with `duckdb`, `polars`, and `sail` in `[tool.uv]`.
 |------------|:------:|:----:|:------:|:-----:|:----:|
 | TPC-H      | ✅     | ✅   | ✅     | ✅    | ✅   |
 | TPC-DS     | ✅     | ✅   | ✅     | ✅    | ✅   |
-| ClickBench | ✅     | —    | —      | ✅    | ✅   |
+| ClickBench | ✅     | —    | ✅     | ✅    | ✅   |
 | ELTBench   | ✅     | ✅   | ✅     | ✅    | ✅   |
 
 ClickBench uses the committed 100-row sample at `tests/integration/data/clickbench_sample.parquet`.

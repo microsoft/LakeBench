@@ -69,6 +69,7 @@ class BaseBenchmark(ABC):
         ("iteration", "TINYINT"),
         ("success", "BOOLEAN"),
         ("error_message", "STRING"),
+        ("sql_text", "STRING"),  # Exact SQL sent to the engine; NULL for non-SQL test items
         ("engine_properties", "MAP<STRING, STRING>"),  # Additional Platform configs/metadata
         ("execution_telemetry", "MAP<STRING, STRING>"),  # Test-item execution details
     ]
@@ -168,10 +169,11 @@ class BaseBenchmark(ABC):
                 "iteration": iteration,
                 "success": success,
                 "error_message": error_message,
+                "sql_text": sql_text,
                 "engine_properties": self.engine.extended_engine_metadata,
                 "execution_telemetry": execution_telemetry,
             }
-            for phase, test_item, sub_phase, start_datetime, duration_ms, iteration, success, error_message, execution_telemetry in self.timer.results
+            for phase, test_item, sub_phase, start_datetime, duration_ms, iteration, success, error_message, execution_telemetry, sql_text in self.timer.results
         ]
         self.results.extend(result_array)
 
