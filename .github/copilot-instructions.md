@@ -135,7 +135,12 @@ render the normalized AST directly to the engine's target dialect.
 SQLGlot is pinned to 30.18.0 on Python 3.9+ and 26.30.0 on Python 3.8.
 Maintain adapters for both AST layouts (FROM/WITH keys, DROP target lists, and
 GROUPING nodes). Review SQL diffs before updating the 750 Spark/T-SQL/Fabric output
-fingerprints in tests/fixtures/tpc_query_rendering.json.
+fingerprints in tests/fixtures/tpc_query_rendering.json or the 215 in
+tests/fixtures/clickbench_query_rendering.json. Both fixtures share a
+`versions`/`sha256`/`overrides` shape, where `overrides` records only the
+queries a given pinned SQLGlot version renders differently; run the rendering
+tests under both pins. Version-dependent cosmetic rendering differences belong
+in `overrides`, never in a normalizer rule.
 The runtime stages are source parsing, registered `SOURCE_NORMALIZERS` (including
 TPC-H q15 lowering), `QUERY_NORMALIZERS`, `ENGINE_QUERY_NORMALIZERS`, then direct
 AST qualification and target rendering. Each registry applies `"*"` before the

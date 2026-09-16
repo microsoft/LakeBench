@@ -212,7 +212,8 @@ either way.
 ## Verification
 
 - 43 queries × 5 dialects (DuckDB, Fabric, MySQL, Spark, T-SQL), pinned in
-  `tests/fixtures/clickbench_query_rendering.json` (215 fingerprints).
+  `tests/fixtures/clickbench_query_rendering.json` (215 fingerprints), verified
+  under both pinned SQLGlot versions.
 - 91 tests in `tests/test_clickbench_query_generation.py`, including the q29
   regex-equivalence harness, the `www.`-stripping regression guard, and the
   `AVG` real-type guard.
@@ -222,3 +223,16 @@ either way.
 - Source hashes checked against `source_manifest.json`.
 
 Not verified: live Spark or Fabric Warehouse execution.
+
+### SQLGlot version-dependent rendering
+
+Six of the 215 fingerprints differ on SQLGlot 26.30.0 and are recorded under
+`overrides` in the fixture. Both differences are rendering-only:
+
+| Queries | 30.18.0 | 26.30.0 | Why it is equivalent |
+|---|---|---|---|
+| q23, all 5 dialects | `URL NOT LIKE '%.google.%'` | `NOT URL LIKE '%.google.%'` | Identical predicate, different placement of the negation; both are valid in every target dialect. |
+| q29, DuckDB only | `REGEXP_REPLACE(..., '\1', 'g')` | `REGEXP_REPLACE(..., '\1')` | The pattern is fully anchored (`^...$`), so it can match at most once; the global flag cannot change the result. |
+
+Neither warrants a normalizer rule — a rule would pin one version's cosmetic
+choice and add a substitution the source did not ask for.

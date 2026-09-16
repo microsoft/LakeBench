@@ -114,7 +114,11 @@ be justified:
 
 - **Rendering fingerprints** — `tests/fixtures/tpc_query_rendering.json` (750
   TPC outputs) and `tests/fixtures/clickbench_query_rendering.json` (215) pin
-  every rendered query. Any unintended change to any engine's SQL fails.
+  every rendered query. Any unintended change to any engine's SQL fails. Both
+  fixtures use the same `versions` / `sha256` / `overrides` shape: `sha256`
+  records the current-SQLGlot rendering and `overrides` records, per pinned
+  SQLGlot version, only the queries that version renders differently. A SQLGlot
+  version outside `versions` fails the test rather than silently re-baselining.
 - **Grammar validation** — T-SQL and Fabric output is parsed with
   `Microsoft.SqlServer.TransactSql.ScriptDom` (`TSql160Parser`) under both
   `SqlEngineType.All` and `SqlEngineType.SqlAzure`.
