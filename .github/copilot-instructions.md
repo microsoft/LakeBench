@@ -81,12 +81,7 @@ Abstract base for all benchmarks.
 
 The result schema includes: `run_id`, `run_datetime`, `lakebench_version`, `engine`, `engine_version`, `benchmark`, `benchmark_version`, `mode`, `scale_factor`, `scenario`, `total_cores`, `compute_size`, `phase`, `sub_phase`, `test_item`, `start_datetime`, `duration_ms`, `estimated_retail_job_cost`, `iteration`, `success`, `error_message`, `sql_text`, `engine_properties` (MAP), `execution_telemetry` (MAP).
 
-`sql_text` holds the exact SQL string handed to the engine, after normalization
-and transpilation. It is set from `TimerContext.sql_text` and is populated for
-the `Query` phase of every load-and-query benchmark (TPC-H, TPC-DS,
-ClickBench), including failed queries. It is NULL for test items that do not
-execute a single SQL statement — load, optimize, analyze, and all ELTBench
-phases, some of which use DataFrame APIs rather than SQL.
+`sql_text` holds the exact SQL string handed to the engine, after normalization and transpilation. It is set from `TimerContext.sql_text` and is populated for the `Query` phase of every load-and-query benchmark (TPC-H, TPC-DS, ClickBench), including failed queries. It is NULL for test items that do not execute a single SQL statement — load, optimize, analyze, and all ELTBench phases, some of which use DataFrame APIs rather than SQL.
 
 `post_results()` collects timer results → builds result rows → optionally appends to a Delta table via `engine._append_results_to_delta()`.
 
@@ -121,22 +116,11 @@ benchmark.run()
 
 ## Query Resolution Strategy
 
-Per-benchmark rule inventories and rationale live in `docs/query-normalization/`
-(`README.md` for the shared pipeline, plus `tpch.md`, `tpcds.md`,
-`clickbench.md`). Update the relevant page whenever rules change. The
-invariants below must hold regardless.
+Per-benchmark rule inventories and rationale live in `docs/query-normalization/` (`README.md` for the shared pipeline, plus `tpch.md`, `tpcds.md`, `clickbench.md`). Update the relevant page whenever rules change. The invariants below must hold regardless.
 
 TPC-H and TPC-DS always load immutable generated ANSI from `resources/queries/canonical/sf<scale>/q*.sql`. SQL-file overrides are not searched. Both use SQLGlot's built-in `tsql` reader through `parse_tpc_ansi_statements`, with minimal generator-specific lexical adaptations; there is no custom dialect. The reader accepts TOP and preserves typed, non-safe division and COUNT syntax. Its implicit NULL ordering is first for ascending and last for descending; explicit NULL ordering is preserved. Never serialize to intermediate T-SQL: render the normalized AST directly to the engine's target dialect. SQLGlot is pinned to 30.18.0 on Python 3.9+ and 26.30.0 on Python 3.8. Maintain adapters for both AST layouts (FROM/WITH keys, DROP target lists, and GROUPING nodes). Review SQL diffs before updating the 500 Spark/Fabric output fingerprints in tests/fixtures/tpc_query_rendering.json or the 172 in tests/fixtures/clickbench_query_rendering.json. Each dialect is rendered through the engine that emits it, so engine-registered rules are pinned too. Both fixtures share a `versions`/`sha256`/`overrides` shape, where `overrides` records only the queries a given pinned SQLGlot version renders differently; run the rendering tests under both pins. Version-dependent cosmetic rendering differences belong in `overrides`, never in a normalizer rule. The runtime stages are source parsing, registered `SOURCE_NORMALIZERS` (including TPC-H q15 lowering), `QUERY_NORMALIZERS`, `ENGINE_QUERY_NORMALIZERS`, then direct AST qualification and target rendering. Each registry applies `"*"` before the query ID; engine registries are keyed by class and inherited base-first. Rule context.dialect is the source dialect; context.target_dialect is the engine's output dialect. Prefer registering an engine-specific accommodation in `ENGINE_QUERY_NORMALIZERS` keyed by the engine class over gating a global rule on `context.target_dialect`; a dialect is a shared rendering target, so a dialect gate claims engines that never needed the fix. Fabric Data Warehouse's TPC-DS stddev/q22 rules and ClickBench grouping, aggregate-widening, and q29 lowering rules are registered to `FabricDataWarehouse` for that reason. Do not normalize identifier case before case-sensitive binding checks. Shared `normalize_date_interval_arithmetic` lowers DATE casts +/- whole DAY/MONTH/YEAR intervals to portable `DateAdd` nodes. Subtraction uses a negative amount with an `exp.Neg` node, not `DateSub` (unsupported T-SQL output) or a negative numeric Literal (invalid DuckDB output). Generated dates, magnitudes, and operation directions must be preserved. Overflow fixes must widen the aggregate input, never cast its result: casting after aggregation cannot prevent INT overflow inside COUNT/SUM/AVG. AVG must widen to a real type; BIGINT or DECIMAL(38,0) stop the overflow but leave T-SQL truncating the average. Neither TPC benchmark registers join normalization by default: WHERE join predicates remain in place even if SQLGlot renders commas as CROSS JOIN. The shared join-normalization function is retained for explicit registration. Compatibility fixes must be registered structural rules, preserve generated substitutions, bump the module's `NORMALIZER_VERSION`, and document semantic accommodations on the benchmark's doc page. Per-query execution telemetry records applied rule IDs.
 
-ClickBench uses the same pipeline with the official ClickHouse query set as its
-immutable source: `resources/queries/canonical/q1..q43.sql` are the exact lines
-of upstream `clickhouse/queries.sql` at a pinned commit, one statement per file,
-parsed with SQLGlot's `clickhouse` reader. SQL-file overrides are not searched.
-`source_manifest.json` pins the commit, blob hash, and per-query hashes; never
-edit a canonical query, and regenerate the manifest if the pin moves.
-Do not emit OCTET_LENGTH for DuckDB: it is BLOB-only there, and upstream's own
-per-engine query sets use each engine's native `length`. Engine-specific DDL
-fallback is unchanged.
+ClickBench uses the same pipeline with the official ClickHouse query set as its immutable source: `resources/queries/canonical/q1..q43.sql` are the exact lines of upstream `clickhouse/queries.sql` at a pinned commit, one statement per file, parsed with SQLGlot's `clickhouse` reader. SQL-file overrides are not searched. `source_manifest.json` pins the commit, blob hash, and per-query hashes; never edit a canonical query, and regenerate the manifest if the pin moves. Do not emit OCTET_LENGTH for DuckDB: it is BLOB-only there, and upstream's own per-engine query sets use each engine's native `length`. Engine-specific DDL fallback is unchanged.
 
 Tables are automatically qualified with catalog and schema when applicable. To inspect the resolved query:
 
@@ -192,8 +176,7 @@ with self.timer(phase="load", test_item="q1", engine=self.engine) as t:
 self.post_results()   # flush timer.results → self.results → optionally Delta
 ```
 
-Set `sql_text` *before* executing, so the statement is still recorded when the
-engine raises.
+Set `sql_text` *before* executing, so the statement is still recorded when the engine raises.
 
 ---
 
@@ -205,35 +188,14 @@ engine raises.
 - **`extended_engine_metadata`** on `BaseEngine` is the right place to attach runtime-specific metadata that ends up in the `engine_properties` MAP column of results.
 - **TPC-DS / TPC-H spec compliance**: LakeBench intentionally diverges from `spark-sql-perf` to follow the official specs (see `customer.c_last_review_date_sk` and `store.s_tax_percentage` fixes in README).
 - **New benchmarks** should subclass `BaseBenchmark`, define `RESULT_SCHEMA`, `BENCHMARK_IMPL_REGISTRY`, `VERSION`, and implement `run()`.
-- **Input location** is accepted as either `input_folder_uri` (preferred) or
-  `input_parquet_folder_uri` (alias). Constructors resolve the pair through
-  `benchmarks/base.py::resolve_input_folder_uri`, which rejects conflicting
-  values; `BaseBenchmark` then sets both attributes to the resolved value.
+- **Input location** is accepted as either `input_folder_uri` (preferred) or `input_parquet_folder_uri` (alias). Constructors resolve the pair through `benchmarks/base.py::resolve_input_folder_uri`, which rejects conflicting values; `BaseBenchmark` then sets both attributes to the resolved value.
 
 ## Native TPC Generator Format
 
-TPC-H and TPC-DS support the generators' pipe-delimited text output alongside
-Parquet: `TPCxDataGenerator(output_format="native")` and
-`TPCx(input_format="native")`. TPC-DS uses subcommand/extension `dat`, TPC-H
-uses `tbl`; `tpcgen-cli tpcds dat` rejects `--num-threads`, and neither native
-subcommand accepts `--compression` or `--row-group-bytes`.
+TPC-H and TPC-DS support the generators' pipe-delimited text output alongside Parquet: `TPCxDataGenerator(output_format="native")` and `TPCx(input_format="native")`. TPC-DS uses subcommand/extension `dat`, TPC-H uses `tbl`; `tpcgen-cli tpcds dat` rejects `--num-threads`, and neither native subcommand accepts `--compression` or `--row-group-bytes`.
 
-The format has no header and no types, so reader schemas come from the
-benchmark's resolved DDL via `utils/schema_utils.py`. Native files are named
-the way the official tools name them: `<table>.tbl`/`<table>.dat` for a single
-part, and `<table>.tbl.<step>` (dbgen) or `<table>_<child>_<parallel>.dat`
-(dsdgen) for multiple parts. Because dbgen's parallel names do not end in the
-extension, engines glob a benchmark-supplied `NATIVE_FILE_GLOB` pattern
-(`*.tbl*`, `*.dat`) rather than an extension.
+The format has no header and no types, so reader schemas come from the benchmark's resolved DDL via `utils/schema_utils.py`. Native files are named the way the official tools name them: `<table>.tbl`/`<table>.dat` for a single part, and `<table>.tbl.<step>` (dbgen) or `<table>_<child>_<parallel>.dat` (dsdgen) for multiple parts. Because dbgen's parallel names do not end in the extension, engines glob a benchmark-supplied `NATIVE_FILE_GLOB` pattern (`*.tbl*`, `*.dat`) rather than an extension.
 
-Every generated line ends with a trailing delimiter, so readers declare one
-extra trailing column (`TRAILING_DELIMITER_COLUMN`) and drop it; quoting must
-be disabled and empty fields must read as NULL. Engines implement
-`load_delimited_to_delta`; `Sail` subclasses `BaseEngine` rather than `Spark`,
-so it needs its own copy. Daft's CSV reader mislabels decimal precision, so
-decimals are read as text and cast.
+Every generated line ends with a trailing delimiter, so readers declare one extra trailing column (`TRAILING_DELIMITER_COLUMN`) and drop it; quoting must be disabled and empty fields must read as NULL. Engines implement `load_delimited_to_delta`; `Sail` subclasses `BaseEngine` rather than `Spark`, so it needs its own copy. Daft's CSV reader mislabels decimal precision, so decimals are read as text and cast.
 
-Native part counts use `NATIVE_SIZE_FACTOR_DICT` (native bytes ÷ uncompressed
-Parquet bytes, measured per table at SF1). Do not derive these from
-`SF1000_SIZE_GB_DICT` at a different scale factor: that dict assumes linear
-scaling, which is false for TPC-DS's fixed-size dimensions.
+Native part counts use `NATIVE_SIZE_FACTOR_DICT` (native bytes ÷ uncompressed Parquet bytes, measured per table at SF1). Do not derive these from `SF1000_SIZE_GB_DICT` at a different scale factor: that dict assumes linear scaling, which is false for TPC-DS's fixed-size dimensions.

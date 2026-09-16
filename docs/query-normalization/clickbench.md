@@ -10,29 +10,17 @@ See [Query Normalization](README.md) for the shared pipeline and rule contract.
 
 ## Source of truth
 
-`resources/queries/canonical/q1.sql` … `q43.sql` are the **exact lines of
-upstream's `clickhouse/queries.sql`** at a pinned commit, one statement per
-file. Nothing is reformatted, re-cased, or rewritten.
+`resources/queries/canonical/q1.sql` … `q43.sql` are the **exact lines of upstream's `clickhouse/queries.sql`** at a pinned commit, one statement per file. Nothing is reformatted, re-cased, or rewritten.
 
-`source_manifest.json` records the pinned commit, upstream blob hash, and
-per-query hashes; `PROVENANCE.md` sits alongside it. The pinned commit and
-manifest hashes are surfaced in result metadata by `_configure_query_resources`,
-so every run is traceable to an upstream revision.
+`source_manifest.json` records the pinned commit, upstream blob hash, and per-query hashes; `PROVENANCE.md` sits alongside it. The pinned commit and manifest hashes are surfaced in result metadata by `_configure_query_resources`, so every run is traceable to an upstream revision.
 
-Upstream ClickBench is published under **CC BY-NC-SA 4.0** and is *not* covered
-by LakeBench's MIT license. See
-[`THIRD-PARTY-NOTICES.md`](../../THIRD-PARTY-NOTICES.md).
+Upstream ClickBench is published under **CC BY-NC-SA 4.0** and is *not* covered by LakeBench's MIT license. See [`THIRD-PARTY-NOTICES.md`](../../THIRD-PARTY-NOTICES.md).
 
 ### Reader
 
-Parsed with SQLGlot's **`clickhouse`** reader, because the source *is*
-ClickHouse SQL. This differs from the TPC benchmarks, whose sources are
-generated ANSI.
+Parsed with SQLGlot's **`clickhouse`** reader, because the source *is* ClickHouse SQL. This differs from the TPC benchmarks, whose sources are generated ANSI.
 
-One consequence worth knowing: the `clickhouse` reader sets `Count.big_int=True`,
-because ClickHouse `count()` returns `UInt64`. T-SQL output therefore contains
-`COUNT_BIG` on 35 of the 43 queries. This is correct — it is the source's result
-type — but it is visibly noisier than hand-written T-SQL would be.
+One consequence worth knowing: the `clickhouse` reader sets `Count.big_int=True`, because ClickHouse `count()` returns `UInt64`. T-SQL output therefore contains `COUNT_BIG` on 35 of the 43 queries. This is correct — it is the source's result type — but it is visibly noisier than hand-written T-SQL would be.
 
 Parsing q43 emits a harmless `WARNING:sqlglot:Unexpected interval unit: MINUTE`.
 
@@ -46,65 +34,43 @@ The warehouse rules are keyed by engine class rather than gated on the target di
 
 ### `_resolve_positional_group_by` — `FabricDataWarehouse` engine — *spelling*
 
-q35 uses ClickHouse's `GROUP BY 1`. T-SQL does not accept positional grouping
-keys, so the position is resolved against the projection list.
+q35 uses ClickHouse's `GROUP BY 1`. T-SQL does not accept positional grouping keys, so the position is resolved against the projection list.
 
-If the referenced projection is a **constant**, the key is dropped rather than
-replaced: a constant contributes no grouping in any dialect, and T-SQL rejects
-grouping by a literal. If every key is dropped the `GROUP BY` clause is removed.
-An out-of-range position raises.
+If the referenced projection is a **constant**, the key is dropped rather than replaced: a constant contributes no grouping in any dialect, and T-SQL rejects grouping by a literal. If every key is dropped the `GROUP BY` clause is removed. An out-of-range position raises.
 
 ### `_expand_group_by_aliases` — `FabricDataWarehouse` engine — *spelling*
 
-T-SQL cannot group by a `SELECT` alias. Affects q19 (`m`), q29 (`k`), and q40
-(`Src`, `Dst`). The alias is replaced with its defining expression.
+T-SQL cannot group by a `SELECT` alias. Affects q19 (`m`), q29 (`k`), and q40 (`Src`, `Dst`). The alias is replaced with its defining expression.
 
-The rule **raises** if the grouping key is *both* a real column in the DDL and a
-select alias, since which one the source meant would then be ambiguous.
+The rule **raises** if the grouping key is *both* a real column in the DDL and a select alias, since which one the source meant would then be ambiguous.
 
 ### `_normalize_native_length` — all targets — *spelling*
 
 Clears `Length.binary`, rendering each target's native `LENGTH`.
 
-The ClickHouse reader marks `length` as a **byte**-length call, because
-ClickHouse's `length(String)` counts bytes. That flag is not worth preserving
-across engines, for two independent reasons:
+The ClickHouse reader marks `length` as a **byte**-length call, because ClickHouse's `length(String)` counts bytes. That flag is not worth preserving across engines, for two independent reasons:
 
-1. **Upstream itself does not preserve it.** ClickBench's own DuckDB and Spark
-   query sets call each engine's native `length`, which counts characters.
-   Per-engine native length *is* the upstream behavior; forcing byte length
-   everywhere would be the deviation.
-2. **Byte length is not portable.** An earlier version of this rule emitted
-   `OCTET_LENGTH`, which failed the DuckDB integration run — DuckDB's
-   `octet_length` accepts `BLOB` only and errors on strings. SQLGlot's
-   alternative is a `CASE TYPEOF` expansion, which is not portable to the other
-   engines sharing the `duckdb` dialect (Polars).
+1. **Upstream itself does not preserve it.** ClickBench's own DuckDB and Spark query sets call each engine's native `length`, which counts characters. Per-engine native length *is* the upstream behavior; forcing byte length everywhere would be the deviation.
+2. **Byte length is not portable.** An earlier version of this rule emitted `OCTET_LENGTH`, which failed the DuckDB integration run — DuckDB's `octet_length` accepts `BLOB` only and errors on strings. SQLGlot's alternative is a `CASE TYPEOF` expansion, which is not portable to the other engines sharing the `duckdb` dialect (Polars).
 
-> **Never emit `OCTET_LENGTH` for DuckDB.** Polars and DuckDB share
-> `SQLGLOT_DIALECT = "duckdb"` but not an executor, so dialect-keyed
-> engine-specific functions are unsafe in general.
+> **Never emit `OCTET_LENGTH` for DuckDB.** Polars and DuckDB share `SQLGLOT_DIALECT = "duckdb"` but not an executor, so dialect-keyed engine-specific functions are unsafe in general.
 
 ### `_widen_integer_aggregates` — `FabricDataWarehouse` engine — *type widening*
 
-Widens the **input** of `SUM` and `AVG` when the argument evaluates as integer
-arithmetic, determined by resolving columns against the DDL schema.
+Widens the **input** of `SUM` and `AVG` when the argument evaluates as integer arithmetic, determined by resolving columns against the DDL schema.
 
 | Aggregate | Widened to | Why |
 |---|---|---|
 | `SUM` | `BIGINT` | T-SQL accumulates `SUM(int)` in `INT`. q30's 90 sums over the full table overflow. ClickHouse returns a 64-bit sum. |
 | `AVG` | `FLOAT` | T-SQL's `AVG(int)` **truncates to a whole number**. ClickHouse `avg()` returns `Float64`. |
 
-> The `AVG` target type matters more than it looks. `BIGINT` or
-> `DECIMAL(38, 0)` stop the overflow but leave the result truncated — the
-> answer is still wrong, just not an error. A real type is required, and a test
-> asserts the cast type is in `exp.DataType.REAL_TYPES`.
+> The `AVG` target type matters more than it looks. `BIGINT` or `DECIMAL(38, 0)` stop the overflow but leave the result truncated — the answer is still wrong, just not an error. A real type is required, and a test asserts the cast type is in `exp.DataType.REAL_TYPES`.
 
 Arguments already wrapped in a `CAST` are left alone, so the rule is idempotent.
 
 ### `_normalize_minute_truncation` — q43, all targets — *spelling*
 
-Replaces `exp.DateTrunc` with
-`exp.TimestampTrunc(this=..., unit=exp.Var(this="MINUTE"))`.
+Replaces `exp.DateTrunc` with `exp.TimestampTrunc(this=..., unit=exp.Var(this="MINUTE"))`.
 
 q43 truncates to the minute. `exp.DateTrunc` renders as:
 
@@ -114,9 +80,7 @@ q43 truncates to the minute. `exp.DateTrunc` renders as:
 | T-SQL | `DATE_TRUNC('MINUTE', x)` | not valid T-SQL |
 | MySQL (Daft) | `DATE(x)` | **silently** degrades to day granularity |
 
-The MySQL case is the dangerous one — no error, just wrong grouping.
-`TimestampTrunc` renders correctly on all three. The rule raises if no
-truncation or no unit is found.
+The MySQL case is the dangerous one — no error, just wrong grouping. `TimestampTrunc` renders correctly on all three. The rule raises if no truncation or no unit is found.
 
 ### q29 host extraction — *lowering*
 
@@ -131,23 +95,16 @@ The backreference fix stays global and target-gated because it follows the regex
 
 **Why lower it for Fabric Data Warehouse.** Fabric Data Warehouse's documented T-SQL surface area does not include `REGEXP_REPLACE`. Substituting a different expression that merely *resembles* host extraction would change the workload, so the fixed pattern is re-expressed with primitives instead.
 
-The lowering (`_lower_q29_referer`) reproduces the pattern's behavior rather
-than approximating it:
+The lowering (`_lower_q29_referer`) reproduces the pattern's behavior rather than approximating it:
 
-- two guarded branches for the exact lowercase `http://` and `https://`
-  prefixes;
-- a `Latin1_General_100_BIN2_UTF8` collation, forcing case-sensitive matching
-  and keeping all offsets on the same UTF-8 encoded input;
-- a required non-empty host, and rejection of a line feed after the first slash
-  (a line feed *inside* the host stays allowed, matching `[^/]+`);
-- `www.` removed only when at least one host character remains, reproducing the
-  source pattern's backtracking on `http://www./path`;
-- every `SUBSTRING` length clamped at zero rather than relying on `CASE`
-  evaluation order;
+- two guarded branches for the exact lowercase `http://` and `https://` prefixes;
+- a `Latin1_General_100_BIN2_UTF8` collation, forcing case-sensitive matching and keeping all offsets on the same UTF-8 encoded input;
+- a required non-empty host, and rejection of a line feed after the first slash (a line feed *inside* the host stays allowed, matching `[^/]+`);
+- `www.` removed only when at least one host character remains, reproducing the source pattern's backtracking on `http://www./path`;
+- every `SUBSTRING` length clamped at zero rather than relying on `CASE` evaluation order;
 - non-matching input and NULL return the original value.
 
-It is verified by **executing it against the source regex** over match,
-non-match, NULL, Unicode, and `www.`-backtracking inputs — not by inspection.
+It is verified by **executing it against the source regex** over match, non-match, NULL, Unicode, and `www.`-backtracking inputs — not by inspection.
 
 > If your warehouse *does* expose `REGEXP_REPLACE`, unregister `_lower_q29_host_extraction` from the engine's registry to stay closer to the upstream text. Availability was never confirmed against a live Fabric Data Warehouse endpoint; the published T-SQL surface-area documentation is the basis for the default.
 
@@ -167,10 +124,7 @@ The override used:
 CASE WHEN CHARINDEX('www.', Referer) = 1 THEN ... END
 ```
 
-This tests the **raw** `Referer`, which always starts with its scheme, so the
-condition is never true and `www.` was never stripped. `www.host` and `host`
-were counted as separate groups, changing the query's grouping cardinality and
-reported row count.
+This tests the **raw** `Referer`, which always starts with its scheme, so the condition is never true and `www.` was never stripped. `www.host` and `host` were counted as separate groups, changing the query's grouping cardinality and reported row count.
 
 Verified in DuckDB — for `http://www.example.com/path`:
 
@@ -183,19 +137,13 @@ A regression test guards against reintroducing this.
 
 ### `AVG` truncation
 
-The overrides widened `AVG` with `CONVERT(BIGINT, ...)` or
-`CONVERT(DECIMAL(38, 0), ...)`. That prevents the overflow but makes T-SQL
-return a whole-number average where ClickHouse returns `Float64`. They also left
-q28 and q31–q33 truncating entirely.
+The overrides widened `AVG` with `CONVERT(BIGINT, ...)` or `CONVERT(DECIMAL(38, 0), ...)`. That prevents the overflow but makes T-SQL return a whole-number average where ClickHouse returns `Float64`. They also left q28 and q31–q33 truncating entirely.
 
 The registered rule widens to `FLOAT` and covers every integer `AVG`.
 
 ### Note on q30
 
-The registered rule produces `SUM(CAST(RW + N AS BIGINT))`; the override used
-`SUM(CONVERT(BIGINT, RW) + N)`. Both are safe — `SMALLINT + INT literal`
-promotes to `INT` with a maximum of 32,856, so there is no per-row overflow
-either way.
+The registered rule produces `SUM(CAST(RW + N AS BIGINT))`; the override used `SUM(CONVERT(BIGINT, RW) + N)`. Both are safe — `SMALLINT + INT literal` promotes to `INT` with a maximum of 32,856, so there is no per-row overflow either way.
 
 ---
 
@@ -218,5 +166,4 @@ Five of the 172 fingerprints differ on SQLGlot 26.30.0 and are recorded under `o
 | q23, all 4 dialects | `URL NOT LIKE '%.google.%'` | `NOT URL LIKE '%.google.%'` | Identical predicate, different placement of the negation; both are valid in every target dialect. |
 | q29, DuckDB only | `REGEXP_REPLACE(..., '\1', 'g')` | `REGEXP_REPLACE(..., '\1')` | The pattern is fully anchored (`^...$`), so it can match at most once; the global flag cannot change the result. |
 
-Neither warrants a normalizer rule — a rule would pin one version's cosmetic
-choice and add a substitution the source did not ask for.
+Neither warrants a normalizer rule — a rule would pin one version's cosmetic choice and add a substitution the source did not ask for.
