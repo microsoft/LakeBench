@@ -18,6 +18,20 @@ class _TpcgenRsDataGenerator:
     BENCHMARK_NAME = ""
     BENCHMARK_LABEL = ""
     COMMAND_ARGUMENTS: Tuple[str, ...] = ()
+    #: tpcgen-cli subcommand and file extension for the generator's native
+    #: pipe-delimited output. TPC-DS emits ``dat`` and TPC-H emits ``tbl``,
+    #: matching the official ``dsdgen`` and ``dbgen`` conventions.
+    NATIVE_SUBCOMMAND = ""
+    NATIVE_FILE_EXTENSION = ""
+    #: ``tpcgen-cli tpcds dat`` does not accept ``--num-threads`` even though the
+    #: parquet subcommand does.
+    NATIVE_SUPPORTS_NUM_THREADS = True
+    OUTPUT_FORMATS = ("parquet", "native")
+    PARQUET_ONLY_OPTIONS = ("target_row_group_size_mb", "compression", "compression_factor")
+    #: Ratio of native pipe-delimited bytes to uncompressed Parquet bytes, measured
+    #: per table at SF1. Both sides are measured at the same scale factor, so the
+    #: ratio is a property of the encoding and holds at any scale factor.
+    NATIVE_SIZE_FACTOR_DICT: Dict[str, float] = {}
     GEN_TABLE_REGISTRY: List[str] = []
     SF1000_SIZE_GB_DICT: Dict[str, float] = {}
     ZSTD1_COMPRESSION_FACTOR_DICT: Dict[str, float] = {}
@@ -40,14 +54,44 @@ class _TpcgenRsDataGenerator:
         self,
         scale_factor: float,
         target_folder_uri: str,
-        target_row_group_size_mb: int = 128,
-        compression: str = "ZSTD(1)",
+        target_row_group_size_mb: Optional[int] = None,
+        compression: Optional[str] = None,
         table_list: Optional[List[str]] = None,
         num_threads: Optional[int] = None,
         compression_factor: Optional[float] = None,
+        output_format: str = "parquet",
     ) -> None:
         if not self.BENCHMARK_NAME or not self.BENCHMARK_LABEL:
             raise TypeError("_TpcgenRsDataGenerator must be subclassed with benchmark metadata.")
+        if output_format not in self.OUTPUT_FORMATS:
+            raise ValueError(f"output_format must be one of: {', '.join(self.OUTPUT_FORMATS)}")
+
+        self.output_format = output_format
+        if output_format == "native":
+            supplied_parquet_options = [
+                name
+                for name, value in zip(
+                    self.PARQUET_ONLY_OPTIONS,
+                    (target_row_group_size_mb, compression, compression_factor),
+                )
+                if value is not None
+            ]
+            if supplied_parquet_options:
+                raise ValueError(
+                    "The following options apply only to output_format='parquet': "
+                    + ", ".join(supplied_parquet_options)
+                )
+            if num_threads is not None and not self.NATIVE_SUPPORTS_NUM_THREADS:
+                raise ValueError(
+                    f"'num_threads' is not supported by tpcgen-cli {self.BENCHMARK_NAME} "
+                    f"{self.NATIVE_SUBCOMMAND}, which has no thread option. Use 'parts' "
+                    "parallelism instead, or generate Parquet."
+                )
+        target_row_group_size_mb = 128 if target_row_group_size_mb is None else target_row_group_size_mb
+        # Native pipe-delimited text has no column compression, so the uncompressed
+        # estimate is the closest available proxy for its on-disk size.
+        if compression is None:
+            compression = "UNCOMPRESSED" if output_format == "native" else "ZSTD(1)"
 
         parsed_uri = urlparse(target_folder_uri)
         uri_scheme = parsed_uri.scheme.lower()
@@ -100,14 +144,23 @@ class _TpcgenRsDataGenerator:
     def run(self) -> None:
         self._prepare_target()
         for (part_count, compression_factor), table_names in self._group_tables_by_generation_settings().items():
-            logger.info(
-                "Generating %s tables %s with %d part(s), %.2f MB on-disk row groups, and a %.3f compression factor.",
-                self.BENCHMARK_LABEL,
-                ", ".join(table_names),
-                part_count,
-                self.target_row_group_size_mb,
-                compression_factor,
-            )
+            if self.output_format == "native":
+                logger.info(
+                    "Generating %s tables %s as %s with %d part(s).",
+                    self.BENCHMARK_LABEL,
+                    ", ".join(table_names),
+                    self.NATIVE_FILE_EXTENSION,
+                    part_count,
+                )
+            else:
+                logger.info(
+                    "Generating %s tables %s with %d part(s), %.2f MB on-disk row groups, and a %.3f compression factor.",
+                    self.BENCHMARK_LABEL,
+                    ", ".join(table_names),
+                    part_count,
+                    self.target_row_group_size_mb,
+                    compression_factor,
+                )
             result = self.cli.run(self._build_command(self.target_folder, table_names, part_count, compression_factor))
             if result.stdout:
                 logger.info(result.stdout.rstrip())
@@ -122,22 +175,26 @@ class _TpcgenRsDataGenerator:
     def _prepare_target(self) -> None:
         self.target_folder.mkdir(parents=True, exist_ok=True)
         for table_name in self.table_list:
-            root_file = self.target_folder / f"{table_name}.parquet"
+            root_file = self.target_folder / f"{table_name}.{self._source_file_extension()}"
             if root_file.exists():
                 root_file.unlink()
             table_folder = self.target_folder / table_name
             if table_folder.exists():
                 shutil.rmtree(table_folder)
 
+    def _source_file_extension(self) -> str:
+        return "parquet" if self.output_format == "parquet" else self.NATIVE_FILE_EXTENSION
+
     def _normalize_outputs(self) -> None:
+        extension = self._source_file_extension()
         for table_name in self.table_list:
             part_count = self.parts_by_table[table_name]
             table_folder = self.target_folder / table_name
             table_folder.mkdir(parents=True, exist_ok=True)
             for part_number in range(1, part_count + 1):
-                source_candidates = [table_folder / f"{table_name}.{part_number}.parquet"]
+                source_candidates = [table_folder / f"{table_name}.{part_number}.{extension}"]
                 if part_count == 1:
-                    source_candidates.insert(0, self.target_folder / f"{table_name}.parquet")
+                    source_candidates.insert(0, self.target_folder / f"{table_name}.{extension}")
                 source_file = next((path for path in source_candidates if path.is_file()), source_candidates[0])
                 if source_file.is_file():
                     shutil.move(
@@ -157,8 +214,18 @@ class _TpcgenRsDataGenerator:
         return outputs
 
     def _output_file_name(self, table_name: str, part_number: int) -> str:
+        if self.output_format == "native":
+            return self._native_output_file_name(table_name, part_number, self.parts_by_table[table_name])
         compression_name = self.compression.partition("(")[0].lower()
         return f"{table_name}-{part_number:05d}.{compression_name}.parquet"
+
+    def _native_output_file_name(self, table_name: str, part_number: int, part_count: int) -> str:
+        """Return the file name the benchmark's official generator would use.
+
+        Overridden per benchmark so native output is named exactly like
+        ``dsdgen``/``dbgen`` output.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not define native output file naming.")
 
     def _group_tables_by_generation_settings(self) -> Dict[Tuple[int, float], List[str]]:
         grouped_tables = defaultdict(list)
@@ -182,6 +249,22 @@ class _TpcgenRsDataGenerator:
             if len(factors) != 1:
                 raise ValueError("Tables with different compression factors must be generated separately.")
             compression_factor = factors.pop()
+
+        if self.output_format == "native":
+            command = [
+                self.BENCHMARK_NAME,
+                self.NATIVE_SUBCOMMAND,
+                "--scale-factor",
+                str(self.scale_factor),
+                "--output-dir",
+                str(output_folder),
+                "--tables",
+                ",".join(table_names),
+                *self.COMMAND_ARGUMENTS,
+            ]
+            if self.NATIVE_SUPPORTS_NUM_THREADS:
+                command += ["--num-threads", str(self.num_threads)]
+            return command + ["--parts", str(part_count), "--no-progress"]
 
         return [
             self.BENCHMARK_NAME,
@@ -226,11 +309,14 @@ class _TpcgenRsDataGenerator:
 
     def _estimated_table_size_gib(self, table_name: str) -> float:
         zstd_size_gib = self.SF1000_SIZE_GB_DICT[table_name] * (self.scale_factor / 1000)
-        return (
+        estimated_gib = (
             zstd_size_gib
             * self.ZSTD1_COMPRESSION_FACTOR_DICT[table_name]
             / self.compression_factors_by_table[table_name]
         )
+        if self.output_format == "native":
+            estimated_gib *= self.NATIVE_SIZE_FACTOR_DICT[table_name]
+        return estimated_gib
 
     def _target_file_size_mb(self, scaled_size_gib: float) -> int:
         for threshold_gib, target_size_mb in self.TARGET_FILE_SIZE_MAP:

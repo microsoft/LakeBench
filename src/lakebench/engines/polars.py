@@ -77,6 +77,45 @@ class Polars(BaseEngine):
             storage_options=self.storage_options,
         )
 
+    def load_delimited_to_delta(
+        self,
+        folder_uri: str,
+        table_name: str,
+        columns,
+        file_pattern: str,
+        table_is_precreated: bool = False,
+        context_decorator: Optional[str] = None,
+        column_name_mapping: Optional[Mapping[str, str]] = None,
+    ):
+        from ..utils.schema_utils import NATIVE_DELIMITER, TRAILING_DELIMITER_COLUMN, schema_to_pyarrow
+
+        arrow_schema = schema_to_pyarrow(columns)
+        polars_schema = self.pl.from_arrow(arrow_schema.empty_table()).schema
+        # The generators terminate every line with a delimiter, producing one more
+        # field than the table has columns.
+        read_schema = self.pl.Schema(list(polars_schema.items()) + [(TRAILING_DELIMITER_COLUMN, self.pl.String)])
+        table_df = self.pl.scan_csv(
+            posixpath.join(folder_uri, file_pattern),
+            separator=NATIVE_DELIMITER,
+            has_header=False,
+            quote_char=None,
+            schema=read_schema,
+            storage_options=self.storage_options,
+        ).drop(TRAILING_DELIMITER_COLUMN)
+        resolved_mapping = self._resolve_column_name_mapping(
+            table_name, table_df.collect_schema().names(), column_name_mapping
+        )
+        if resolved_mapping:
+            table_df = table_df.rename(resolved_mapping)
+        decimal_cols = [name for name, dtype in table_df.collect_schema().items() if str(dtype).startswith("Decimal")]
+        if decimal_cols:
+            table_df = table_df.with_columns([self.pl.col(c).cast(self.pl.Float64, strict=False) for c in decimal_cols])
+        table_df.collect(engine="streaming").write_delta(
+            posixpath.join(self.schema_or_working_directory_uri, table_name),
+            mode="overwrite",
+            storage_options=self.storage_options,
+        )
+
     def register_table(self, table_name: str):
         """
         Register a Delta table LazyFrame in Polars.

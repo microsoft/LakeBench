@@ -106,6 +106,58 @@ class DuckDB(BaseEngine):
             storage_options=self.storage_options,
         )
 
+    def load_delimited_to_delta(
+        self,
+        folder_uri: str,
+        table_name: str,
+        columns,
+        file_pattern: str,
+        table_is_precreated: bool = False,
+        context_decorator: Optional[str] = None,
+        column_name_mapping: Optional[Mapping[str, str]] = None,
+    ):
+        from ..utils.schema_utils import NATIVE_DELIMITER, TRAILING_DELIMITER_COLUMN, schema_to_sql_types
+
+        def quote_identifier(identifier: str) -> str:
+            return f'"{identifier.replace(chr(34), chr(34) * 2)}"'
+
+        sql_types = schema_to_sql_types(columns, self.SQLGLOT_DIALECT)
+        # The generators terminate every line with a delimiter, producing one more
+        # field than the table has columns.
+        sql_types[TRAILING_DELIMITER_COLUMN] = "VARCHAR"
+        column_spec = ", ".join(f"{quote_identifier(name)}: '{sql_type}'" for name, sql_type in sql_types.items())
+        glob_path = posixpath.join(folder_uri, file_pattern)
+        relation = self.duckdb.sql(
+            f"""
+            FROM read_csv(
+                '{glob_path}',
+                delim = '{NATIVE_DELIMITER}',
+                header = false,
+                quote = '',
+                escape = '',
+                nullstr = '',
+                columns = {{{column_spec}}}
+            )
+            """
+        ).select(", ".join(quote_identifier(name) for name, _ in columns))
+        resolved_mapping = self._resolve_column_name_mapping(table_name, relation.columns, column_name_mapping)
+        if resolved_mapping:
+            projection = ", ".join(
+                (
+                    f"{quote_identifier(column)} AS {quote_identifier(resolved_mapping[column])}"
+                    if column in resolved_mapping
+                    else quote_identifier(column)
+                )
+                for column in relation.columns
+            )
+            relation = relation.select(projection)
+        self.deltars.write_deltalake(
+            table_or_uri=posixpath.join(self.schema_or_working_directory_uri, table_name),
+            data=relation.fetch_record_batch(),
+            mode="overwrite",
+            storage_options=self.storage_options,
+        )
+
     def register_table(self, table_name: str):
         """
         Register a Delta table in DuckDB.

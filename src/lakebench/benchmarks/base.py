@@ -8,6 +8,27 @@ from ..engines.base import BaseEngine
 from ..utils.timer import timer
 
 
+def resolve_input_folder_uri(
+    input_parquet_folder_uri: Optional[str],
+    input_folder_uri: Optional[str],
+) -> Optional[str]:
+    """Resolve the input location from its two accepted parameter names.
+
+    ``input_folder_uri`` is the preferred name because the input is not
+    necessarily Parquet; ``input_parquet_folder_uri`` is retained as an alias.
+    """
+    if (
+        input_parquet_folder_uri is not None
+        and input_folder_uri is not None
+        and input_parquet_folder_uri != input_folder_uri
+    ):
+        raise ValueError(
+            "'input_folder_uri' and 'input_parquet_folder_uri' are aliases for the same input "
+            "location but were given different values. Provide only one."
+        )
+    return input_folder_uri if input_folder_uri is not None else input_parquet_folder_uri
+
+
 class BaseBenchmark(ABC):
     """
     Abstract base class for defining benchmarks. This class provides a structure for implementing benchmarks
@@ -24,7 +45,9 @@ class BaseBenchmark(ABC):
     scenario_name : str
         The name of the scenario being benchmarked.
     input_parquet_folder_uri : Optional[str]
-        The path to the input parquet files, if applicable.
+        The path to the input files, if applicable. Accepted as
+        ``input_folder_uri`` on benchmark constructors; both names are
+        supported and refer to the same location.
     result_table_uri : Optional[str]
         The path where benchmark results will be saved, if `save_results` is True.
     save_results : bool
@@ -92,8 +115,13 @@ class BaseBenchmark(ABC):
         if not engine.SUPPORTS_MOUNT_PATH and input_parquet_folder_uri[:1] == "/":
             raise ValueError(
                 f"""Mount path is not supported for {type(engine).__name__} engine.
-                Please provide fully qualified uri for `input_parquet_folder_uri`."""
+                Please provide fully qualified uri for `input_folder_uri`."""
             )
+
+        #: Canonical input location. ``input_parquet_folder_uri`` is kept as an
+        #: alias so existing code and notebooks continue to work.
+        self.input_folder_uri = input_parquet_folder_uri
+        self.input_parquet_folder_uri = input_parquet_folder_uri
 
         self.header_detail_dict = {
             "run_id": run_id if run_id is not None else str(uuid.uuid1()),

@@ -31,7 +31,9 @@ class TPCDSDataGenerator:
     num_threads : int, optional
         Rust worker-thread count. Defaults to all available CPU cores. Use a
         lower value such as 8 or 16 for large generations targeting mounted
-        filesystems.
+        filesystems. Rejected when ``output_format="native"``, because
+        ``tpcgen-cli tpcds dat`` has no thread option; use the part count for
+        parallelism instead.
     backend : {"rust", "duckdb"}, default="rust"
         Data generator backend. DuckDB is retained as an explicit legacy fallback.
     compression_factor : float, optional
@@ -40,6 +42,11 @@ class TPCDSDataGenerator:
         ZSTD levels use per-table factors measured with ``ZSTD(1)`` and
         ``SNAPPY`` uses its own measured factors; other compressed codecs
         require an explicit value.
+    output_format : {"parquet", "native"}, default="parquet"
+        ``"native"`` emits the generator's pipe-delimited ``.dat`` files, the
+        same layout the official ``dsdgen`` produces. Parquet-only options
+        (``target_row_group_size_mb``, ``compression``, ``compression_factor``)
+        are rejected in that mode. Requires ``backend="rust"``.
     Methods
     -------
     run()
@@ -50,17 +57,19 @@ class TPCDSDataGenerator:
         self,
         scale_factor: float,
         target_folder_uri: str,
-        target_row_group_size_mb: int = 128,
-        compression: str = "ZSTD(1)",
+        target_row_group_size_mb: Optional[int] = None,
+        compression: Optional[str] = None,
         table_list: Optional[List[str]] = None,
         num_threads: Optional[int] = None,
         backend: str = "rust",
         compression_factor: Optional[float] = None,
+        output_format: str = "parquet",
     ) -> None:
         self.scale_factor = scale_factor
         self.target_folder_uri = target_folder_uri
         self.target_row_group_size_mb = target_row_group_size_mb
         self.backend = backend
+        self.output_format = output_format
 
         if backend == "rust":
             self._generator = _TPCDSRsDataGenerator(
@@ -71,10 +80,13 @@ class TPCDSDataGenerator:
                 table_list=table_list,
                 num_threads=num_threads,
                 compression_factor=compression_factor,
+                output_format=output_format,
             )
         elif backend == "duckdb":
+            if output_format != "parquet":
+                raise ValueError("output_format='native' is supported only by backend='rust'.")
             rust_options = {
-                "compression": compression if compression != "ZSTD(1)" else None,
+                "compression": compression,
                 "table_list": table_list,
                 "num_threads": num_threads,
                 "compression_factor": compression_factor,
@@ -87,7 +99,7 @@ class TPCDSDataGenerator:
             self._generator = _TPCDSDuckDBDataGenerator(
                 scale_factor=scale_factor,
                 target_folder_uri=target_folder_uri,
-                target_row_group_size_mb=target_row_group_size_mb,
+                target_row_group_size_mb=128 if target_row_group_size_mb is None else target_row_group_size_mb,
             )
         else:
             raise ValueError("backend must be either 'rust' or 'duckdb'.")

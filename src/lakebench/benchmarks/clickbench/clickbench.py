@@ -35,8 +35,8 @@ class ClickBench(_LoadAndQuery):
         The name of the benchmark scenario.
     query_list : list of str, optional
         List of queries to execute. Use '*' for all queries. If not specified, all queries will be run.
-    input_parquet_folder_uri : str, optional
-        Path to the input parquet files.
+    input_folder_uri : str, optional
+        Path to the input parquet files, also accepted as ``input_parquet_folder_uri``.
     result_table_uri : str, optional
         Table URI where results will be saved. Must be specified if `save_results` is True.
     save_results : bool
@@ -135,6 +135,7 @@ class ClickBench(_LoadAndQuery):
         ddl_override_dialect: Optional[str] = "spark",
         optimize: bool = False,
         analyze: Union[bool, Literal["none", "full", "selective"]] = "none",
+        input_folder_uri: Optional[str] = None,
     ):
         super().__init__(
             engine=engine,
@@ -142,6 +143,7 @@ class ClickBench(_LoadAndQuery):
             scale_factor=None,
             query_list=query_list,
             input_parquet_folder_uri=input_parquet_folder_uri,
+            input_folder_uri=input_folder_uri,
             result_table_uri=result_table_uri,
             save_results=save_results,
             ddl_variant=ddl_variant,

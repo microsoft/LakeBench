@@ -44,6 +44,7 @@ src/lakebench/
 └── utils/
     ├── query_utils.py           # transpile_and_qualify_query(), get_table_name_from_ddl()
     ├── path_utils.py            # abfss_to_https(), to_unix_path()
+    ├── schema_utils.py          # DDL -> reader schemas for the native TPC text format
     └── timer.py                 # Context-manager timer; stores results for post_results()
 ```
 
@@ -240,3 +241,35 @@ engine raises.
 - **`extended_engine_metadata`** on `BaseEngine` is the right place to attach runtime-specific metadata that ends up in the `engine_properties` MAP column of results.
 - **TPC-DS / TPC-H spec compliance**: LakeBench intentionally diverges from `spark-sql-perf` to follow the official specs (see `customer.c_last_review_date_sk` and `store.s_tax_percentage` fixes in README).
 - **New benchmarks** should subclass `BaseBenchmark`, define `RESULT_SCHEMA`, `BENCHMARK_IMPL_REGISTRY`, `VERSION`, and implement `run()`.
+- **Input location** is accepted as either `input_folder_uri` (preferred) or
+  `input_parquet_folder_uri` (alias). Constructors resolve the pair through
+  `benchmarks/base.py::resolve_input_folder_uri`, which rejects conflicting
+  values; `BaseBenchmark` then sets both attributes to the resolved value.
+
+## Native TPC Generator Format
+
+TPC-H and TPC-DS support the generators' pipe-delimited text output alongside
+Parquet: `TPCxDataGenerator(output_format="native")` and
+`TPCx(input_format="native")`. TPC-DS uses subcommand/extension `dat`, TPC-H
+uses `tbl`; `tpcgen-cli tpcds dat` rejects `--num-threads`, and neither native
+subcommand accepts `--compression` or `--row-group-bytes`.
+
+The format has no header and no types, so reader schemas come from the
+benchmark's resolved DDL via `utils/schema_utils.py`. Native files are named
+the way the official tools name them: `<table>.tbl`/`<table>.dat` for a single
+part, and `<table>.tbl.<step>` (dbgen) or `<table>_<child>_<parallel>.dat`
+(dsdgen) for multiple parts. Because dbgen's parallel names do not end in the
+extension, engines glob a benchmark-supplied `NATIVE_FILE_GLOB` pattern
+(`*.tbl*`, `*.dat`) rather than an extension.
+
+Every generated line ends with a trailing delimiter, so readers declare one
+extra trailing column (`TRAILING_DELIMITER_COLUMN`) and drop it; quoting must
+be disabled and empty fields must read as NULL. Engines implement
+`load_delimited_to_delta`; `Sail` subclasses `BaseEngine` rather than `Spark`,
+so it needs its own copy. Daft's CSV reader mislabels decimal precision, so
+decimals are read as text and cast.
+
+Native part counts use `NATIVE_SIZE_FACTOR_DICT` (native bytes ÷ uncompressed
+Parquet bytes, measured per table at SF1). Do not derive these from
+`SF1000_SIZE_GB_DICT` at a different scale factor: that dict assumes linear
+scaling, which is false for TPC-DS's fixed-size dimensions.

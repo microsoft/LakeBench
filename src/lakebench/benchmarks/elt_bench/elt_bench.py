@@ -11,7 +11,7 @@ from ...engines.polars import Polars
 from ...engines.sail import Sail
 from ...engines.spark import Spark
 from ...utils.query_utils import get_table_name_from_ddl, transpile_and_qualify_query
-from ..base import BaseBenchmark
+from ..base import BaseBenchmark, resolve_input_folder_uri
 from ..tpcds.tpcds import TPCDS
 from .engine_impl.daft import DaftELTBench
 from .engine_impl.duckdb import DuckDBELTBench
@@ -32,8 +32,8 @@ class ELTBench(BaseBenchmark):
         The engine to use for executing the benchmark.
     scenario_name : str
         The name of the benchmark scenario.
-    input_parquet_folder_uri : str, optional
-        Path to the input parquet files. Must be the root directory containing a folder named after each table in TABLE_REGISTRY.
+    input_folder_uri : str, optional
+        Path to the input parquet files, also accepted as ``input_parquet_folder_uri``. Must be the root directory containing a folder named after each table in TABLE_REGISTRY.
     result_table_uri : str, optional
         Table URI where results will be saved. Must be specified if `save_results` is True.
     save_results : bool, optional
@@ -93,7 +93,9 @@ class ELTBench(BaseBenchmark):
         result_table_uri: Optional[str] = None,
         save_results: bool = False,
         run_id: Optional[str] = None,
+        input_folder_uri: Optional[str] = None,
     ):
+        input_parquet_folder_uri = resolve_input_folder_uri(input_parquet_folder_uri, input_folder_uri)
         self.scale_factor = scale_factor
         super().__init__(engine, scenario_name, input_parquet_folder_uri, result_table_uri, save_results, run_id)
         for base_engine, benchmark_impl in self.BENCHMARK_IMPL_REGISTRY.items():
@@ -114,7 +116,6 @@ class ELTBench(BaseBenchmark):
         self.engine = engine
         self.scenario_name = scenario_name
         self.benchmark_impl = self.benchmark_impl_class(self.engine)
-        self.input_parquet_folder_uri = input_parquet_folder_uri
 
     def run(self, mode: str = "light"):
         """

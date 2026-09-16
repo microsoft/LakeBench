@@ -265,6 +265,41 @@ class BaseEngine(ABC):
 
         return resolved_mapping
 
+    def load_delimited_to_delta(
+        self,
+        folder_uri: str,
+        table_name: str,
+        columns: "Sequence[tuple[str, Any]]",
+        file_pattern: str,
+        table_is_precreated: bool = False,
+        context_decorator: Optional[str] = None,
+        column_name_mapping: Optional[Mapping[str, str]] = None,
+    ):
+        """
+        Load the TPC generators' native pipe-delimited output into a Delta table.
+
+        Unlike Parquet, the native format carries no header and no types, so
+        ``columns`` supplies the ordered ``(name, sqlglot_type)`` pairs derived from
+        the benchmark's canonical DDL. Every generated line ends with a trailing
+        delimiter, so readers must declare one extra trailing column and drop it.
+
+        Parameters
+        ----------
+        folder_uri : str
+            Folder holding the table's native data files.
+        table_name : str
+            Target Delta table name.
+        columns : sequence of (str, sqlglot.exp.DataType)
+            Ordered column names and types for the table.
+        file_pattern : str
+            Glob matching the table's native files, relative to ``folder_uri``,
+            for example ``*.dat`` for TPC-DS or ``*.tbl*`` for TPC-H.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support loading the native delimited format. "
+            "Generate the dataset with output_format='parquet' instead."
+        )
+
     def analyze_table(self, table_name: str, columns: Optional[Sequence[str]] = None):
         """
         Compute statistics for the specified table.

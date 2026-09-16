@@ -5,6 +5,10 @@ class _TPCDSRsDataGenerator(_TpcgenRsDataGenerator):
     BENCHMARK_NAME = "tpcds"
     BENCHMARK_LABEL = "TPC-DS"
     COMMAND_ARGUMENTS = ("--compat", "c")
+    NATIVE_SUBCOMMAND = "dat"
+    NATIVE_FILE_EXTENSION = "dat"
+    # `tpcgen-cli tpcds dat` rejects --num-threads even though `tpcds parquet` accepts it.
+    NATIVE_SUPPORTS_NUM_THREADS = False
     GEN_TABLE_REGISTRY = [
         "call_center",
         "catalog_page",
@@ -93,6 +97,34 @@ class _TPCDSRsDataGenerator(_TpcgenRsDataGenerator):
         "web_returns": 3.976669,
         "web_sales": 35.409775,
         "web_site": 0.001225,
+    }
+    #: Ratio of native pipe-delimited bytes to uncompressed Parquet bytes,
+    #: measured per table at SF1 with the bundled generator.
+    NATIVE_SIZE_FACTOR_DICT = {
+        "call_center": 0.177,
+        "catalog_page": 1.281,
+        "catalog_returns": 1.826,
+        "catalog_sales": 2.848,
+        "customer": 1.603,
+        "customer_address": 2.592,
+        "customer_demographics": 8.285,
+        "date_dim": 2.68,
+        "household_demographics": 3.165,
+        "income_band": 0.237,
+        "inventory": 6.492,
+        "item": 1.702,
+        "promotion": 1.159,
+        "reason": 0.586,
+        "ship_mode": 0.355,
+        "store": 0.299,
+        "store_returns": 1.986,
+        "store_sales": 2.859,
+        "time_dim": 1.735,
+        "warehouse": 0.123,
+        "web_page": 0.922,
+        "web_returns": 1.564,
+        "web_sales": 3.16,
+        "web_site": 0.676,
     }
     ZSTD1_COMPRESSION_FACTOR_DICT = {
         "call_center": 1.166,
@@ -185,3 +217,14 @@ class _TPCDSRsDataGenerator(_TpcgenRsDataGenerator):
         base_row_count = row_counts[0] if scale_factor < 1 else row_counts[1]
         count = int(fraction * (row_counts[scale_slot] - row_counts[scale_slot - 1])) + base_row_count
         return count or 1
+
+    def _native_output_file_name(self, table_name: str, part_number: int, part_count: int) -> str:
+        """Name native files the way official ``dsdgen`` does.
+
+        Serial ``dsdgen`` writes ``<table>.dat``; a parallel run started with
+        ``-parallel <streams> -child <stream>`` writes
+        ``<table>_<stream>_<streams>.dat``.
+        """
+        if part_count == 1:
+            return f"{table_name}.{self.NATIVE_FILE_EXTENSION}"
+        return f"{table_name}_{part_number}_{part_count}.{self.NATIVE_FILE_EXTENSION}"
