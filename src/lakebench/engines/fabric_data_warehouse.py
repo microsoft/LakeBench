@@ -368,7 +368,7 @@ class FabricDataWarehouse(BaseEngine):
 
             with self._connection_engine.connect() as connection:
                 try:
-                    return pd.read_sql_query(query, connection)
+                    return pd.read_sql_query(sa.text(query), connection)
                 except sa.exc.DBAPIError as exc:
                     if self._is_cancellation(exc.orig.args):
                         connection.invalidate()

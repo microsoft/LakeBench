@@ -2,6 +2,7 @@
 assembly, and persistence through the delta-rs write path."""
 
 import datetime
+from decimal import Decimal
 from unittest.mock import MagicMock
 
 import pytest
@@ -211,6 +212,36 @@ def test_appending_to_a_pre_upgrade_result_table_adds_the_column(tmp_path):
     written = deltalake.DeltaTable(table_uri).to_pyarrow_table().select(["test_item", "sql_text"]).to_pylist()
     by_item = {row["test_item"]: row["sql_text"] for row in written}
     assert by_item == {"q1": None, "q2": "SELECT 2"}
+
+
+def test_warehouse_results_append_preserves_maps_and_scalar_types(tmp_path):
+    deltalake = pytest.importorskip("deltalake")
+    from lakebench.engines.fabric_data_warehouse import FabricDataWarehouse
+
+    engine = FabricDataWarehouse.__new__(FabricDataWarehouse)
+    engine.storage_options = {}
+    table_uri = str(tmp_path / "warehouse-results")
+    timestamp = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+    row = _result_row(test_item="q1", sql_text="SELECT 1")
+    row.update(
+        run_datetime=timestamp,
+        estimated_retail_job_cost=Decimal("0.0123456789"),
+        engine_properties={"warehouse_name": "test-warehouse", "size": 64},
+        execution_telemetry={"statement_id": "test-statement", "rows": 1},
+    )
+    engine._append_results_to_delta(table_uri, [row], BaseBenchmark.RESULT_SCHEMA)
+    engine._append_results_to_delta(table_uri, [_result_row(test_item="q2")], BaseBenchmark.RESULT_SCHEMA)
+
+    rows = {row["test_item"]: row for row in deltalake.DeltaTable(table_uri).to_pyarrow_table().to_pylist()}
+    assert set(rows) == {"q1", "q2"}
+    assert rows["q1"]["sql_text"] == "SELECT 1"
+    assert rows["q1"]["run_datetime"] == timestamp
+    assert rows["q1"]["estimated_retail_job_cost"] == Decimal("0.0123456789")
+    assert dict(rows["q1"]["engine_properties"]) == {"warehouse_name": "test-warehouse", "size": "64"}
+    assert dict(rows["q1"]["execution_telemetry"]) == {"statement_id": "test-statement", "rows": "1"}
+    assert rows["q2"]["sql_text"] is None
+    assert rows["q2"]["engine_properties"] == []
+    assert rows["q2"]["execution_telemetry"] == []
 
 
 def test_spark_schema_conversion_covers_sql_text():

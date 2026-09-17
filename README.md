@@ -174,12 +174,8 @@ class MyCustomEngine(BaseEngine):
 Install from PyPi:
 
 ```bash
-pip install lakebench[duckdb,polars,tpcds_datagen,tpch_datagen,sparkmeasure]
+pip install lakebench[duckdb,polars,fabric_data_warehouse,sail,sparkmeasure]
 ```
-
-> _Note: the `daft` extra pins `deltalake` to 1.5.x (Daft cannot read the Arrow `Utf8View` parquet that `deltalake` 1.6.x emits from `MERGE`), so it must be installed in its own environment rather than alongside `duckdb`, `polars`, or `sail`. Daft is unsupported as of 2.0.0 — see the note in the engine support matrix above._
->
-> `tpch_datagen` and `tpcds_datagen` use the same self-contained Rust `tpcgen-cli` binary bundled in the Windows x86_64 and Linux x86_64 LakeBench wheels. The legacy DuckDB TPC-DS generator remains available separately through `tpcds_duckdb_datagen`.
 
 Engines import their heavy dependencies lazily, so a forgotten extra used to surface partway into a run as an error that named neither the engine nor the package to install. Every engine now checks its dependencies when it is constructed and reports all of the missing ones at once:
 
@@ -370,7 +366,9 @@ benchmark = TPCDS(
 benchmark.run()
 ```
 
-> _Note: install with `pip install lakebench[fabric_data_warehouse]` and make sure Microsoft ODBC Driver 18 for SQL Server is available on the host. The engine authenticates with the notebook identity's Fabric token, so it must run inside a Fabric notebook.
+> _Note: use Python 3.10+ and install with `pip install lakebench[fabric_data_warehouse]`. Make sure Microsoft ODBC Driver 18 for SQL Server is available on the host. The engine authenticates with the notebook identity's Fabric token, so it must run inside a Fabric notebook._
+>
+> Delta (`deltalake==1.5.1`) and PyArrow are used only for result-log appends. The extra relies on the core `pyarrow>=14.0.0` floor rather than forcing an upgrade of Fabric Runtime 1.3's Arrow installation, and can share Daft's Delta 1.5.x dependency. SQL reads require pandas 1.4+ with SQLAlchemy 2; pandas 2 is not required.
 
 ### Polars
 ```python
