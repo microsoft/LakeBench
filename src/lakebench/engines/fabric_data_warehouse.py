@@ -43,13 +43,7 @@ class FabricDataWarehouse(BaseEngine):
     SUPPORTS_MOUNT_PATH = False
     SUPPORTS_ONELAKE = True
     SUPPORTS_SCHEMA_PREP = True
-    REQUIRED_MODULES = (
-        "sqlalchemy",
-        "pyodbc",
-        "pandas",
-        "requests",
-        "deltalake"
-    )
+    REQUIRED_MODULES = ("sqlalchemy", "pyodbc", "pandas", "requests", "deltalake")
     INSTALL_EXTRA = "fabric_data_warehouse"
     #: Named in the connection string, so it has to be present on the host as well.
     _ODBC_DRIVER = "ODBC Driver 18 for SQL Server"
