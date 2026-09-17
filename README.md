@@ -235,13 +235,13 @@ _Notes:_
 - `target_row_group_size_mb` is an on-disk compressed-size target. LakeBench converts it to the uncompressed-byte value expected by `tpcgen-cli` using benchmark- and table-specific ZSTD(1) or Snappy compression ratios measured from SF10 output. All `ZSTD(N)` levels use the ZSTD(1) measurements for planning while the requested compression level is passed through unchanged. Automatic part counts are adjusted for the selected codec. The row-group conversion includes a 5% planning margin for upstream's estimated bytes-per-source-row model. Other compressed codecs require an explicit `compression_factor`, which is used for both row groups and file estimates. TPC-DS generation uses the upstream C-reference compatibility mode.
 - Output remains organized as `<root>/<table>/*.parquet`. Filenames include the one-based part number and codec for quick inspection, for example `lineitem/lineitem-00001.zstd.parquet` or `store_sales/store_sales-00001.zstd.parquet`.
 - To use the legacy implementation, install `lakebench[tpcds_duckdb_datagen]` on Python 3.10+ and pass `backend="duckdb"`.- Editable/source installations use the matching vendored binary from
-- `output_format="native"` emits the TPC generators' pipe-delimited text instead of Parquet, matching what the official `dsdgen`/`dbgen` tools produce. See [Native TPC Generator Format](#native-tpc-generator-format-dat--tbl) below.- Editable/source installations use the matching vendored binary from `native/tpcgen`; installed wheels always use their packaged binary.
+- `output_format="native"` emits the TPC generators' pipe-delimited text instead of Parquet, matching what the official `dsdgen`/`dbgen` tools produce. TPC-DS native format support is currently in preview. See [Native TPC Generator Format](#native-tpc-generator-format-dat--tbl) below.- Editable/source installations use the matching vendored binary from `native/tpcgen`; installed wheels always use their packaged binary.
 - Large generations targeting mounted filesystems can set `num_threads=8` or `num_threads=16` to limit concurrent file creation and atomic renames. The default remains all available CPU cores.
 - The ClickBench dataset (only 1 size) should download with partitioned files in ~ 1 minute and ~ 6 minutes as a single file. 
 
 #### Native TPC Generator Format (`.dat` / `.tbl`)
 
-TPC-H and TPC-DS can be generated and loaded in the TPC tools' native pipe-delimited text format instead of Parquet. This measures the load phase against the same raw format the official `dsdgen` and `dbgen` tools emit, rather than a pre-typed columnar file.
+TPC-H and TPC-DS can be generated and loaded in the TPC tools' native pipe-delimited text format instead of Parquet. TPC-DS native format support is currently in preview. This measures the load phase against the same raw format the official `dsdgen` and `dbgen` tools emit, rather than a pre-typed columnar file.
 
 ```python
 from lakebench.datagen import TPCHDataGenerator
@@ -272,7 +272,7 @@ _Notes:_
 - Empty fields are read as `NULL`, and quoting is disabled so `"` is treated as ordinary data.
 - Parquet-only options (`target_row_group_size_mb`, `compression`, and `compression_factor`) are rejected with `output_format="native"`. Automatic part counts use per-table native-to-uncompressed-Parquet size ratios measured at SF1.
 - Supported on the DuckDB, Polars, Daft, Sail, and Spark engines. Engines with a benchmark-specific Parquet loader (such as Fabric Data Warehouse) reject `input_format="native"` rather than silently loading Parquet.
-- `output_format="native"` requires `backend="rust"`. `tpcgen-cli tpcds dat` has no thread option at all, so `num_threads` is rejected for TPC-DS native generation; parallelism there comes from the part count. `tpcgen-cli tpch tbl` does accept `--num-threads`, so TPC-H native honours it exactly like Parquet (defaulting to all available CPU cores).
+- `output_format="native"` requires `backend="rust"`. With the currently bundled generator, `tpcgen-cli tpcds dat` has no thread option, so TPC-DS native generation runs single-threaded regardless of the available core count and rejects `num_threads`. Part count controls output splitting but does not make the current TPC-DS native run parallel. `tpcgen-cli tpch tbl` does accept `--num-threads`, so TPC-H native honours it exactly like Parquet (defaulting to all available CPU cores).
 
 #### Naming the Input Location
 

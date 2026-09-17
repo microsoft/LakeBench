@@ -32,8 +32,9 @@ class TPCDSDataGenerator:
         Rust worker-thread count. Defaults to all available CPU cores. Use a
         lower value such as 8 or 16 for large generations targeting mounted
         filesystems. Rejected when ``output_format="native"``, because
-        ``tpcgen-cli tpcds dat`` has no thread option; use the part count for
-        parallelism instead.
+        the currently bundled ``tpcgen-cli tpcds dat`` has no thread option
+        and runs single-threaded regardless of available cores. Native part
+        count controls output splitting, not parallel execution.
     backend : {"rust", "duckdb"}, default="rust"
         Data generator backend. DuckDB is retained as an explicit legacy fallback.
     compression_factor : float, optional
@@ -44,9 +45,11 @@ class TPCDSDataGenerator:
         require an explicit value.
     output_format : {"parquet", "native"}, default="parquet"
         ``"native"`` emits the generator's pipe-delimited ``.dat`` files, the
-        same layout the official ``dsdgen`` produces. Parquet-only options
-        (``target_row_group_size_mb``, ``compression``, ``compression_factor``)
-        are rejected in that mode. Requires ``backend="rust"``.
+        same layout the official ``dsdgen`` produces. TPC-DS native format
+        support is currently in preview. Parquet-only options
+        (``target_row_group_size_mb``, ``compression``,
+        ``compression_factor``) are rejected in that mode. Requires
+        ``backend="rust"``.
     Methods
     -------
     run()

@@ -195,7 +195,7 @@ Set `sql_text` *before* executing, so the statement is still recorded when the e
 
 ## Native TPC Generator Format
 
-TPC-H and TPC-DS support the generators' pipe-delimited text output alongside Parquet: `TPCxDataGenerator(output_format="native")` and `TPCx(input_format="native")`. TPC-DS uses subcommand/extension `dat`, TPC-H uses `tbl`; `tpcgen-cli tpcds dat` rejects `--num-threads`, and neither native subcommand accepts `--compression` or `--row-group-bytes`.
+TPC-H and TPC-DS support the generators' pipe-delimited text output alongside Parquet: `TPCxDataGenerator(output_format="native")` and `TPCx(input_format="native")`. TPC-DS native format support is currently in preview. TPC-DS uses subcommand/extension `dat`, TPC-H uses `tbl`; the currently bundled `tpcgen-cli tpcds dat` rejects `--num-threads` and runs single-threaded regardless of available cores. Part count controls output splitting, not parallel execution. Neither native subcommand accepts `--compression` or `--row-group-bytes`.
 
 The format has no header and no types, so reader schemas come from the benchmark's resolved DDL via `utils/schema_utils.py`. Native files are named the way the official tools name them: `<table>.tbl`/`<table>.dat` for a single part, and `<table>.tbl.<step>` (dbgen) or `<table>_<child>_<parallel>.dat` (dsdgen) for multiple parts. Because dbgen's parallel names do not end in the extension, engines glob a benchmark-supplied `NATIVE_FILE_GLOB` pattern (`*.tbl*`, `*.dat`) rather than an extension.
 
