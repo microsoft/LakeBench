@@ -5,8 +5,10 @@ the SQL-building and error-classification logic against an uninitialized engine.
 """
 
 import inspect
+from pathlib import Path
 
 import pytest
+from packaging.requirements import Requirement
 
 from lakebench.benchmarks import TPCDS, TPCH, ClickBench, ELTBench
 from lakebench.benchmarks.clickbench.engine_impl import fabric_data_warehouse as clickbench_impl
@@ -20,6 +22,13 @@ def engine():
     engine = _uninitialized_engine(FabricDataWarehouse)
     engine.schema_name = "dbo"
     return engine
+
+
+@pytest.fixture
+def project_config():
+    tomllib = pytest.importorskip("tomllib")
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    return tomllib.loads(pyproject.read_text(encoding="utf-8"))
 
 
 class _RecordingEngine(FabricDataWarehouse):
@@ -86,18 +95,58 @@ def test_the_former_name_is_still_importable_as_an_alias():
     assert ClickBench.BENCHMARK_IMPL_REGISTRY[FabricWarehouse] is not None
 
 
-def test_the_former_extra_name_still_installs_the_engine():
-    import pathlib
-    import sys
-
-    if sys.version_info < (3, 11):
-        pytest.skip("tomllib requires Python 3.11")
-    import tomllib
-
-    pyproject = pathlib.Path(__file__).resolve().parents[1] / "pyproject.toml"
-    extras = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["optional-dependencies"]
-    assert extras["fabric_warehouse"] == ["lakebench[fabric_data_warehouse]"]
+@pytest.mark.parametrize("extra_name", ["fabric_warehouse", "fabricwarehouse"])
+def test_the_former_extra_name_still_installs_the_engine(project_config, extra_name):
+    extras = project_config["project"]["optional-dependencies"]
+    assert extras[extra_name] == ["lakebench[fabric_data_warehouse]"]
     assert any(requirement.startswith("pyodbc") for requirement in extras["fabric_data_warehouse"])
+
+
+@pytest.mark.parametrize(
+    "python_version, available",
+    [("3.8", False), ("3.9", False), ("3.10", True), ("3.11", True)],
+)
+def test_extra_gates_delta_on_supported_python(project_config, python_version, available):
+    requirements = {
+        requirement.name: requirement
+        for requirement in map(Requirement, project_config["project"]["optional-dependencies"]["fabric_data_warehouse"])
+    }
+    requirement = requirements["deltalake"]
+    assert str(requirement.specifier) == "==1.5.1"
+    assert requirement.marker is not None
+    assert requirement.marker.evaluate({"python_version": python_version}) is available
+
+
+def test_extra_reuses_the_core_pyarrow_floor(project_config):
+    extra = project_config["project"]["optional-dependencies"]["fabric_data_warehouse"]
+    assert "pyarrow" not in {requirement.name for requirement in map(Requirement, extra)}
+    arrow = next(req for req in map(Requirement, project_config["project"]["dependencies"]) if req.name == "pyarrow")
+    assert "14.0.2" in arrow.specifier
+
+
+def test_extra_requires_pandas_compatible_with_sqlalchemy_2(project_config):
+    extra = project_config["project"]["optional-dependencies"]["fabric_data_warehouse"]
+    pandas = next(req for req in map(Requirement, extra) if req.name == "pandas")
+    assert "1.3.0" not in pandas.specifier
+    assert "1.4.0" in pandas.specifier
+    assert "2.0.0" in pandas.specifier
+
+
+@pytest.mark.parametrize("extra_name", ["fabric_data_warehouse", "fabric_warehouse", "fabricwarehouse"])
+def test_extra_and_aliases_can_share_daft_delta_dependency(project_config, extra_name):
+    conflicts = [{entry["extra"] for entry in conflict} for conflict in project_config["tool"]["uv"]["conflicts"]]
+    assert {"daft", extra_name} not in conflicts
+    extras = project_config["project"]["optional-dependencies"]
+    for extra in ("fabric_data_warehouse", "daft"):
+        requirement = next(req for req in map(Requirement, extras[extra]) if req.name == "deltalake")
+        assert "1.5.1" in requirement.specifier
+
+
+@pytest.mark.parametrize("extra_name", ["fabric_data_warehouse", "fabric_warehouse", "fabricwarehouse"])
+@pytest.mark.parametrize("other_extra", ["duckdb", "polars", "sail"])
+def test_extra_and_aliases_declare_delta_version_conflicts(project_config, extra_name, other_extra):
+    conflicts = [{entry["extra"] for entry in conflict} for conflict in project_config["tool"]["uv"]["conflicts"]]
+    assert {extra_name, other_extra} in conflicts
 
 
 def test_engine_declares_its_platform_capabilities():
@@ -119,6 +168,26 @@ def test_job_cost_is_not_reported():
     assert engine.cost_per_hour is None
     assert engine.cost_per_vcore_hour is None
     assert engine.get_job_cost(3_600_000) is None
+
+
+def test_return_data_uses_executable_sql_for_older_pandas(engine, monkeypatch):
+    pd = pytest.importorskip("pandas")
+    sa = pytest.importorskip("sqlalchemy")
+    read_sql_query = pd.read_sql_query
+    query = "SELECT 1 AS c1, 'test value' AS c2"
+
+    def read_executable_sql(statement, connection):
+        assert isinstance(statement, sa.sql.elements.TextClause)
+        assert str(statement) == query
+        return read_sql_query(statement, connection)
+
+    monkeypatch.setattr(pd, "read_sql_query", read_executable_sql)
+    engine._connection_engine = sa.create_engine("sqlite://")
+    try:
+        result = engine.execute_sql_query(query, return_data=True)
+        assert result.to_dict("records") == [{"c1": 1, "c2": "test value"}]
+    finally:
+        engine._connection_engine.dispose()
 
 
 @pytest.mark.parametrize(

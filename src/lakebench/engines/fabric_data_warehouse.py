@@ -43,12 +43,7 @@ class FabricDataWarehouse(BaseEngine):
     SUPPORTS_MOUNT_PATH = False
     SUPPORTS_ONELAKE = True
     SUPPORTS_SCHEMA_PREP = True
-    REQUIRED_MODULES = (
-        "sqlalchemy",
-        "pyodbc",
-        "pandas",
-        "requests",
-    )
+    REQUIRED_MODULES = ("sqlalchemy", "pyodbc", "pandas", "requests", "deltalake")
     INSTALL_EXTRA = "fabric_data_warehouse"
     #: Named in the connection string, so it has to be present on the host as well.
     _ODBC_DRIVER = "ODBC Driver 18 for SQL Server"
@@ -367,7 +362,7 @@ class FabricDataWarehouse(BaseEngine):
 
             with self._connection_engine.connect() as connection:
                 try:
-                    return pd.read_sql_query(query, connection)
+                    return pd.read_sql_query(sa.text(query), connection)
                 except sa.exc.DBAPIError as exc:
                     if self._is_cancellation(exc.orig.args):
                         connection.invalidate()

@@ -1,6 +1,6 @@
 [project]
 name = "lakebench"
-version = "2.0.0"
+version = "2.0.1"
 authors = [
     { name="Miles Cole" },
 ]
@@ -36,8 +36,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# The core `pyarrow>=14.0.0` floor is deliberately low (see above); extras that
-# write via delta-rs need a newer pyarrow and state it explicitly here.
+# The core `pyarrow>=14.0.0` floor is deliberately low (see above); engines that
+# need newer Arrow for table operations state it explicitly in their extras.
 duckdb = ["duckdb==1.5.5; python_version >= '3.10'", "deltalake==1.6.2; python_version >= '3.10'", "pyarrow>=16.0.0; python_version >= '3.10'"]
 polars = ["polars==1.44.1; python_version >= '3.10'", "deltalake==1.6.2; python_version >= '3.10'", "pyarrow>=16.0.0; python_version >= '3.10'"]
 # Daft is held on deltalake 1.5.x: 1.6.x emits DataFusion `string_view` parquet
@@ -56,7 +56,8 @@ spark = ["pyspark>=3.5.0,<4.0.0; python_version >= '3.9'", "delta-spark>=3.2.0,<
 sail = ["pysail>=0.7.1; python_version >= '3.10'", "pyspark[connect]>=4.0.0; python_version >= '3.10'", "deltalake>=1.6.2; python_version >= '3.10'", "pyarrow>=16.0.0; python_version >= '3.10'"]
 # Fabric Data Warehouse connects over ODBC, so it also needs the Microsoft ODBC
 # Driver 18 for SQL Server installed on the host.
-fabric_data_warehouse = ["sqlalchemy>=2.0.0; python_version >= '3.9'", "pyodbc>=5.0.0; python_version >= '3.9'", "pandas>=1.3.0; python_version >= '3.9'", "requests>=2.28.0"]
+# Result-log appends use pinned Delta and reuse the core PyArrow floor.
+fabric_data_warehouse = ["sqlalchemy>=2.0.0; python_version >= '3.9'", "pyodbc>=5.0.0; python_version >= '3.9'", "pandas>=1.4.0; python_version >= '3.9'", "requests>=2.28.0", "deltalake==1.5.1; python_version >= '3.10'"]
 # Backwards-compatible alias for the extra's former name.
 fabric_warehouse = ["lakebench[fabric_data_warehouse]"]
 fabricwarehouse = ["lakebench[fabric_data_warehouse]"]
@@ -129,10 +130,19 @@ ignore = [
 [tool.uv]
 conflicts = [
     [{ extra = "spark" }, { extra = "sail" }],
-    # daft holds deltalake at 1.5.x; the other Delta engines are on 1.6.x.
+    # Daft and Warehouse use Delta 1.5.x; DuckDB, Polars, and Sail require 1.6.x.
     [{ extra = "daft" }, { extra = "duckdb" }],
     [{ extra = "daft" }, { extra = "polars" }],
     [{ extra = "daft" }, { extra = "sail" }],
+    [{ extra = "fabric_data_warehouse" }, { extra = "duckdb" }],
+    [{ extra = "fabric_data_warehouse" }, { extra = "polars" }],
+    [{ extra = "fabric_data_warehouse" }, { extra = "sail" }],
+    [{ extra = "fabric_warehouse" }, { extra = "duckdb" }],
+    [{ extra = "fabric_warehouse" }, { extra = "polars" }],
+    [{ extra = "fabric_warehouse" }, { extra = "sail" }],
+    [{ extra = "fabricwarehouse" }, { extra = "duckdb" }],
+    [{ extra = "fabricwarehouse" }, { extra = "polars" }],
+    [{ extra = "fabricwarehouse" }, { extra = "sail" }],
 ]
 
 [tool.pytest.ini_options]
