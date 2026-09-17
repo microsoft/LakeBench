@@ -48,6 +48,7 @@ class FabricDataWarehouse(BaseEngine):
         "pyodbc",
         "pandas",
         "requests",
+        "deltalake"
     )
     INSTALL_EXTRA = "fabric_data_warehouse"
     #: Named in the connection string, so it has to be present on the host as well.
