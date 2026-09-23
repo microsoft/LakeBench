@@ -1,3 +1,4 @@
+import logging
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -6,6 +7,8 @@ from typing import Dict, Optional, Type
 
 from ..engines.base import BaseEngine
 from ..utils.timer import timer
+
+logger = logging.getLogger(__name__)
 
 
 def resolve_input_folder_uri(
@@ -159,6 +162,42 @@ class BaseBenchmark(ABC):
     def run(self):
         pass
 
+    def _log_benchmark_summary(self, net_duration_seconds: float, result_start_index: int = 0):
+        run_results = self.results[result_start_index:]
+        total = len(run_results)
+        succeeded = sum(1 for result in run_results if result["success"])
+        failed = total - succeeded
+        success_rate = (succeeded / total * 100) if total else 0.0
+
+        phase_duration_ms = {}
+        for result in run_results:
+            phase = result["phase"]
+            phase_duration_ms[phase] = phase_duration_ms.get(phase, 0) + result["duration_ms"]
+
+        phase_lines = [
+            f"  {phase}: {duration_ms / 1000:.2f} seconds ({duration_ms / 60000:.2f} minutes)"
+            for phase, duration_ms in phase_duration_ms.items()
+        ]
+        if not phase_lines:
+            phase_lines.append("  No timed phases recorded")
+
+        logger.info(
+            "Benchmark summary for %s on %s (mode: %s)\n"
+            "Results: %d total, %d succeeded, %d failed (%.2f%% success)\n"
+            "Duration by phase:\n%s\n"
+            "Net duration: %.2f seconds (%.2f minutes)",
+            self.header_detail_dict["benchmark"],
+            self.header_detail_dict["engine"],
+            self.mode or "unknown",
+            total,
+            succeeded,
+            failed,
+            success_rate,
+            "\n".join(phase_lines),
+            net_duration_seconds,
+            net_duration_seconds / 60,
+        )
+
     def post_results(self):
         """
         Processes and posts benchmark results, saving them to a specified location if save_results is True.
@@ -205,13 +244,11 @@ class BaseBenchmark(ABC):
         ]
         self.results.extend(result_array)
 
-        if self.save_results:
-            if self.result_table_uri is None:
-                raise ValueError("result_table_uri must be provided if save_results is True.")
-            else:
-                try:
+        try:
+            if self.save_results:
+                if self.result_table_uri is None:
+                    raise ValueError("result_table_uri must be provided if save_results is True.")
+                else:
                     self.engine._append_results_to_delta(self.result_table_uri, result_array, self.RESULT_SCHEMA)
-                except Exception as e:
-                    raise e
-                finally:
-                    self.timer.clear_results()
+        finally:
+            self.timer.clear_results()

@@ -2,6 +2,7 @@ import importlib.resources
 import inspect
 import json
 import posixpath
+import time
 from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Union
 
 import sqlglot
@@ -331,18 +332,23 @@ class _LoadAndQuery(BaseBenchmark):
         -----
         The `MODE_REGISTRY` attribute contains the list of supported modes.
         """
-        self.mode = mode
-
-        if mode == "load":
-            self._run_load_test()
-        elif mode == "query":
-            self._run_query_test()
-        elif mode == "power_test":
-            self._run_power_test()
-        elif mode == "load_and_query":
-            self._run_load_and_query()
-        else:
+        if mode not in self.MODE_REGISTRY:
             raise ValueError(f"Unknown mode '{mode}'. Supported modes: {self.MODE_REGISTRY}.")
+
+        self.mode = mode
+        result_start_index = len(self.results)
+        start = time.perf_counter()
+        try:
+            if mode == "load":
+                self._run_load_test()
+            elif mode == "query":
+                self._run_query_test()
+            elif mode == "power_test":
+                self._run_power_test()
+            else:
+                self._run_load_and_query()
+        finally:
+            self._log_benchmark_summary(time.perf_counter() - start, result_start_index)
 
     def _prepare_schema(self):
         """

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.resources
 import posixpath
+import time
 from typing import Optional
 
 from ...engines.base import BaseEngine
@@ -132,12 +133,18 @@ class ELTBench(BaseBenchmark):
             - 'full': Placeholder for full mode, which is not implemented yet.
         """
 
-        if mode == "light":
-            self.run_light_mode()
-        elif mode == "full":
+        if mode == "full":
             raise NotImplementedError("Full mode is not implemented yet.")
-        else:
+        if mode != "light":
             raise ValueError(f"Mode '{mode}' is not supported. Supported modes: {self.MODE_REGISTRY}.")
+
+        self.mode = mode
+        result_start_index = len(self.results)
+        start = time.perf_counter()
+        try:
+            self.run_light_mode()
+        finally:
+            self._log_benchmark_summary(time.perf_counter() - start, result_start_index)
 
     def _prepare_schema(self, tables: list[str]):
 
