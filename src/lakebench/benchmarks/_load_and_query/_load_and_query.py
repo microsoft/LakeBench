@@ -331,18 +331,22 @@ class _LoadAndQuery(BaseBenchmark):
         -----
         The `MODE_REGISTRY` attribute contains the list of supported modes.
         """
-        self.mode = mode
-
-        if mode == "load":
-            self._run_load_test()
-        elif mode == "query":
-            self._run_query_test()
-        elif mode == "power_test":
-            self._run_power_test()
-        elif mode == "load_and_query":
-            self._run_load_and_query()
-        else:
+        if mode not in self.MODE_REGISTRY:
             raise ValueError(f"Unknown mode '{mode}'. Supported modes: {self.MODE_REGISTRY}.")
+
+        self.mode = mode
+        result_start_index = len(self.results)
+        try:
+            if mode == "load":
+                self._run_load_test()
+            elif mode == "query":
+                self._run_query_test()
+            elif mode == "power_test":
+                self._run_power_test()
+            else:
+                self._run_load_and_query()
+        finally:
+            self._log_benchmark_summary(result_start_index)
 
     def _prepare_schema(self):
         """
