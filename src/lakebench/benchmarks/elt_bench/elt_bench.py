@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib.resources
 import posixpath
-import time
 from typing import Optional
 
 from ...engines.base import BaseEngine
@@ -140,11 +139,10 @@ class ELTBench(BaseBenchmark):
 
         self.mode = mode
         result_start_index = len(self.results)
-        start = time.perf_counter()
         try:
             self.run_light_mode()
         finally:
-            self._log_benchmark_summary(time.perf_counter() - start, result_start_index)
+            self._log_benchmark_summary(result_start_index)
 
     def _prepare_schema(self, tables: list[str]):
 

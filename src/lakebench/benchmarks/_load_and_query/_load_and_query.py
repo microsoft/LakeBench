@@ -2,7 +2,6 @@ import importlib.resources
 import inspect
 import json
 import posixpath
-import time
 from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Union
 
 import sqlglot
@@ -337,7 +336,6 @@ class _LoadAndQuery(BaseBenchmark):
 
         self.mode = mode
         result_start_index = len(self.results)
-        start = time.perf_counter()
         try:
             if mode == "load":
                 self._run_load_test()
@@ -348,7 +346,7 @@ class _LoadAndQuery(BaseBenchmark):
             else:
                 self._run_load_and_query()
         finally:
-            self._log_benchmark_summary(time.perf_counter() - start, result_start_index)
+            self._log_benchmark_summary(result_start_index)
 
     def _prepare_schema(self):
         """

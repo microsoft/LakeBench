@@ -162,12 +162,13 @@ class BaseBenchmark(ABC):
     def run(self):
         pass
 
-    def _log_benchmark_summary(self, net_duration_seconds: float, result_start_index: int = 0):
+    def _log_benchmark_summary(self, result_start_index: int = 0):
         run_results = self.results[result_start_index:]
         total = len(run_results)
         succeeded = sum(1 for result in run_results if result["success"])
         failed = total - succeeded
         success_rate = (succeeded / total * 100) if total else 0.0
+        net_duration_ms = sum(result["duration_ms"] for result in run_results)
 
         phase_duration_ms = {}
         for result in run_results:
@@ -194,8 +195,8 @@ class BaseBenchmark(ABC):
             failed,
             success_rate,
             "\n".join(phase_lines),
-            net_duration_seconds,
-            net_duration_seconds / 60,
+            net_duration_ms / 1000,
+            net_duration_ms / 60000,
         )
 
     def post_results(self):
