@@ -40,9 +40,7 @@ def _make_engine(collect_stats_on_write):
 def _make_optimize_engine(fast_optimize_value=None, sql_error=None):
     engine = object.__new__(FabricSpark)
     config_values = (
-        {FabricSpark._FAST_OPTIMIZE_CONFIG: fast_optimize_value}
-        if fast_optimize_value is not None
-        else None
+        {FabricSpark._FAST_OPTIMIZE_CONFIG: fast_optimize_value} if fast_optimize_value is not None else None
     )
     engine.spark = _Spark(config_values, sql_error)
     engine.full_catalog_schema_reference = "`lakehouse`.`schema`"
