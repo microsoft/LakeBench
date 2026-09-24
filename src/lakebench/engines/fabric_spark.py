@@ -12,6 +12,7 @@ class FabricSpark(Spark):
     Fabric Spark Engine
     """
 
+    _FAST_OPTIMIZE_CONFIG = "spark.microsoft.delta.optimize.fast.enabled"
     _WRITE_STATS_CONFIGS = (
         "spark.microsoft.delta.stats.collect.extended",
         "spark.microsoft.delta.stats.injection.enabled",
@@ -139,3 +140,14 @@ class FabricSpark(Spark):
         for config_name in self._WRITE_STATS_CONFIGS:
             self.spark.conf.set(config_name, config_value)
             self.spark_configs[config_name] = config_value
+
+    def optimize_table(self, table_name: str):
+        fast_optimize_value = self.spark.conf.get(self._FAST_OPTIMIZE_CONFIG, None)
+        if str(fast_optimize_value).lower() != "true":
+            return super().optimize_table(table_name)
+
+        self.spark.conf.set(self._FAST_OPTIMIZE_CONFIG, "false")
+        try:
+            return super().optimize_table(table_name)
+        finally:
+            self.spark.conf.set(self._FAST_OPTIMIZE_CONFIG, fast_optimize_value)
