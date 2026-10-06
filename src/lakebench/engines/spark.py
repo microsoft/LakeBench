@@ -47,6 +47,7 @@ class Spark(BaseEngine):
         schema_uri: Optional[str] = None,
         spark_measure_telemetry: bool = False,
         cost_per_vcore_hour: Optional[float] = None,
+        cost_per_hour: Optional[float] = None,
         compute_stats_all_cols: bool = False,
         tblproperties: Optional[dict] = None,
     ):
@@ -64,6 +65,8 @@ class Spark(BaseEngine):
         cost_per_vcore_hour : float, optional
             The cost per vCore hour for the Spark cluster. If None, cost calculations are auto calculated
             where possible.
+        cost_per_hour : float, optional
+            The total hourly cost for the Spark cluster. Mutually exclusive with ``cost_per_vcore_hour``.
         compute_stats_all_cols : bool, default False
             .. deprecated::
                 Use the ``analyze`` parameter on the benchmark class instead.
@@ -127,7 +130,10 @@ class Spark(BaseEngine):
         self.full_catalog_schema_reference: str = (
             f"`{self.catalog_name}`.`{self.schema_name}`" if catalog_name else f"`{self.schema_name}`"
         )
-        self.cost_per_vcore_hour = cost_per_vcore_hour
+        self._configure_cost_inputs(
+            cost_per_vcore_hour=cost_per_vcore_hour,
+            cost_per_hour=cost_per_hour,
+        )
         self.spark_configs = self.__get_spark_session_configs()
         self.extended_engine_metadata.update(
             {

@@ -13,6 +13,7 @@ class HDISpark(Spark):
         schema_name: str,
         spark_measure_telemetry: bool = False,
         cost_per_vcore_hour: Optional[float] = None,
+        cost_per_hour: Optional[float] = None,
         tblproperties: Optional[dict] = None,
     ):
         """
@@ -25,6 +26,8 @@ class HDISpark(Spark):
         cost_per_vcore_hour : float, optional
             The cost per vCore hour for the Spark cluster. If None, cost calculations are auto calculated
             where possible.
+        cost_per_hour : float, optional
+            The total hourly cost for the Spark cluster. Mutually exclusive with ``cost_per_vcore_hour``.
         tblproperties : dict, optional
             Delta table properties to inject into CREATE TABLE statements.
         """
@@ -34,6 +37,7 @@ class HDISpark(Spark):
             schema_name=schema_name,
             spark_measure_telemetry=spark_measure_telemetry,
             cost_per_vcore_hour=cost_per_vcore_hour,
+            cost_per_hour=cost_per_hour,
             compute_stats_all_cols=False,
             tblproperties=tblproperties,
         )
