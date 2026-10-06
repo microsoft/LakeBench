@@ -3,6 +3,7 @@ from typing import List, Literal, Optional, Union
 
 from ...engines.base import BaseEngine
 from ...engines.daft import Daft
+from ...engines.databricks_sql_warehouse import DatabricksSQLWarehouse
 from ...engines.duckdb import DuckDB
 from ...engines.fabric_data_warehouse import FabricDataWarehouse
 from ...engines.polars import Polars
@@ -17,6 +18,7 @@ from ._query_normalizers import (
     QUERY_NORMALIZERS as CLICKBENCH_QUERY_NORMALIZERS,
 )
 from .engine_impl.daft import DaftClickBench
+from .engine_impl.databricks_sql_warehouse import DatabricksSQLWarehouseClickBench
 from .engine_impl.duckdb import DuckDBClickBench
 from .engine_impl.fabric_data_warehouse import FabricDataWarehouseClickBench
 from .engine_impl.polars import PolarsClickBench
@@ -71,6 +73,7 @@ class ClickBench(_LoadAndQuery):
         Sail: SailClickBench,
         Polars: PolarsClickBench,
         Daft: DaftClickBench,
+        DatabricksSQLWarehouse: DatabricksSQLWarehouseClickBench,
         FabricDataWarehouse: FabricDataWarehouseClickBench,
     }
     BENCHMARK_NAME = "ClickBench"

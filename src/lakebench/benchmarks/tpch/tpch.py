@@ -1,6 +1,7 @@
 import logging
 
 from ...engines.daft import Daft
+from ...engines.databricks_sql_warehouse import DatabricksSQLWarehouse
 from ...engines.duckdb import DuckDB
 from ...engines.fabric_data_warehouse import FabricDataWarehouse
 from ...engines.polars import Polars
@@ -73,6 +74,7 @@ class TPCH(_LoadAndQuery):
         Daft: None,
         Polars: None,
         Sail: None,
+        DatabricksSQLWarehouse: None,
         FabricDataWarehouse: None,
     }
     BENCHMARK_NAME = "TPCH"
