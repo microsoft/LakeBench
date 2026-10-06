@@ -48,9 +48,7 @@ class DatabricksSpark(Spark):
         )
 
         if workload_type not in {"jobs-compute", "all-purpose-compute"}:
-            raise ValueError(
-                "workload_type must be 'jobs-compute' or 'all-purpose-compute'."
-            )
+            raise ValueError("workload_type must be 'jobs-compute' or 'all-purpose-compute'.")
 
         runtime_version = self.spark.conf.get(
             "spark.databricks.clusterUsageTags.sparkVersion",
@@ -75,17 +73,11 @@ class DatabricksSpark(Spark):
             None,
         )
         self.workload_type = workload_type
-        pricing_workload_type = (
-            f"{workload_type}-with-photon" if self.photon_enabled else workload_type
-        )
+        pricing_workload_type = f"{workload_type}-with-photon" if self.photon_enabled else workload_type
 
         workspace_url = self.spark_configs.get("spark.databricks.workspaceUrl")
-        cluster_id = self.spark_configs.get(
-            "spark.databricks.clusterUsageTags.clusterId"
-        )
-        spark_context_id = self.spark_configs.get(
-            "spark.databricks.sparkContextId"
-        )
+        cluster_id = self.spark_configs.get("spark.databricks.clusterUsageTags.clusterId")
+        spark_context_id = self.spark_configs.get("spark.databricks.sparkContextId")
         spark_history_url = (
             f"https://{workspace_url}/compute/sparkui/{cluster_id}/driver-{spark_context_id}"
             if workspace_url and cluster_id and spark_context_id
@@ -96,11 +88,7 @@ class DatabricksSpark(Spark):
             {
                 "cloud_provider": self.cloud_provider,
                 "compute_region": self.region or "unknown",
-                "photon_enabled": (
-                    str(self.photon_enabled)
-                    if runtime_engine is not None
-                    else "unknown"
-                ),
+                "photon_enabled": (str(self.photon_enabled) if runtime_engine is not None else "unknown"),
                 "unity_catalog": str(self.unity_catalog),
                 "spark.databricks.clusterUsageTags.sparkVersion": runtime_version,
                 "spark_history_url": spark_history_url,
@@ -119,9 +107,7 @@ class DatabricksSpark(Spark):
         )
         if cost_per_vcore_hour is not None or cost_per_hour is not None:
             self._materialize_cost_per_hour()
-            self.extended_engine_metadata["cost_per_hour"] = str(
-                self.cost_per_hour
-            )
+            self.extended_engine_metadata["cost_per_hour"] = str(self.cost_per_hour)
         elif self.cloud_provider == "azure":
             self._configure_automatic_pricing(
                 pricing_workload_type=pricing_workload_type,
@@ -206,11 +192,6 @@ class DatabricksSpark(Spark):
             else ""
         )
         if drop_before_create:
-            self.spark.sql(
-                f"DROP SCHEMA IF EXISTS {self.full_catalog_schema_reference} CASCADE"
-            )
-        self.spark.sql(
-            f"CREATE SCHEMA IF NOT EXISTS {self.full_catalog_schema_reference} "
-            f"{location_str}"
-        )
+            self.spark.sql(f"DROP SCHEMA IF EXISTS {self.full_catalog_schema_reference} CASCADE")
+        self.spark.sql(f"CREATE SCHEMA IF NOT EXISTS {self.full_catalog_schema_reference} {location_str}")
         self.spark.sql(f"USE {self.full_catalog_schema_reference}")

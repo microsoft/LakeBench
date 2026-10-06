@@ -70,7 +70,6 @@ class DatabricksSQLWarehouseELTBench:
 
     def query_total_sales_fact(self):
         return self.engine.execute_sql_query(
-            "SELECT SUM(total_net_profit), YEAR(sale_date) "
-            "FROM total_sales_fact GROUP BY YEAR(sale_date)",
+            "SELECT SUM(total_net_profit), YEAR(sale_date) FROM total_sales_fact GROUP BY YEAR(sale_date)",
             return_data=True,
         )

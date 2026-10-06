@@ -283,9 +283,7 @@ class BaseEngine(ABC):
         elif self.cost_per_hour is None:
             return None
 
-        job_cost = Decimal(str(self.cost_per_hour)) * (
-            Decimal(duration_ms) / Decimal(3600000)
-        )  # Convert ms to hours
+        job_cost = Decimal(str(self.cost_per_hour)) * (Decimal(duration_ms) / Decimal(3600000))  # Convert ms to hours
         return job_cost.quantize(Decimal("0.0000000000"))  # Ensure precision matches DECIMAL(18,10)
 
     def _configure_cost_inputs(

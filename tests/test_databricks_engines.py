@@ -216,7 +216,6 @@ def test_azure_cluster_estimate_explains_how_to_refresh_missing_sku():
         )
 
 
-
 def _make_sql_warehouse():
     warehouse = DatabricksSQLWarehouse.__new__(DatabricksSQLWarehouse)
     warehouse.server_hostname = "workspace.cloud.databricks.com"
@@ -284,10 +283,7 @@ def test_sql_warehouse_pricing_permission_failure_logs_without_crashing(caplog):
             )
 
     assert warehouse.cost_per_hour == 8.4
-    assert (
-        warehouse.extended_engine_metadata["pricing_source"]
-        == "azure_retail_catalog_serverless_sql_dbu"
-    )
+    assert warehouse.extended_engine_metadata["pricing_source"] == "azure_retail_catalog_serverless_sql_dbu"
     assert "Estimated job cost will not be reported" not in caplog.text
 
 
@@ -410,9 +406,7 @@ def test_sql_warehouse_appends_results_through_remote_sql_from_local_runtime():
         generic_schema=[("run_id", "STRING")],
     )
 
-    statements = [
-        call.args[0] for call in warehouse.execute_sql_statement.call_args_list
-    ]
+    statements = [call.args[0] for call in warehouse.execute_sql_statement.call_args_list]
     assert statements[0].startswith("CREATE TABLE IF NOT EXISTS delta.")
     assert statements[1].startswith("INSERT INTO delta.")
 

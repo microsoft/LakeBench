@@ -24,6 +24,7 @@ _CLOUD_ALIASES = {
     "google cloud": "gcp",
 }
 
+
 class DatabricksPricingError(RuntimeError):
     """Raised when an automatic Databricks price cannot be resolved."""
 
@@ -49,9 +50,7 @@ class DatabricksPriceEstimate:
             "dbus_per_hour": str(self.dbus_per_hour.quantize(Decimal("0.0000"))),
             "dbu_rate": str(self.dbu_rate.quantize(Decimal("0.0000"))),
             "dbu_cost_per_hour": str(self.dbu_cost_per_hour.quantize(Decimal("0.0000"))),
-            "infrastructure_cost_per_hour": str(
-                self.infrastructure_cost_per_hour.quantize(Decimal("0.0000"))
-            ),
+            "infrastructure_cost_per_hour": str(self.infrastructure_cost_per_hour.quantize(Decimal("0.0000"))),
             "pricing_source": self.pricing_source,
         }
 
@@ -59,9 +58,7 @@ class DatabricksPriceEstimate:
 def normalize_cloud_provider(value: str) -> CloudProvider:
     normalized = _CLOUD_ALIASES.get(value.strip().lower())
     if normalized is None:
-        raise ValueError(
-            f"Unsupported Databricks cloud provider '{value}'. Expected one of: aws, azure, gcp."
-        )
+        raise ValueError(f"Unsupported Databricks cloud provider '{value}'. Expected one of: aws, azure, gcp.")
     return normalized  # type: ignore[return-value]
 
 
@@ -86,10 +83,7 @@ def infer_cloud_provider(
     if hostname.endswith(".cloud.databricks.com") or hostname == "cloud.databricks.com":
         return "aws"
 
-    raise ValueError(
-        "Unable to detect the Databricks cloud provider. Pass cloud_provider='aws', "
-        "'azure', or 'gcp'."
-    )
+    raise ValueError("Unable to detect the Databricks cloud provider. Pass cloud_provider='aws', 'azure', or 'gcp'.")
 
 
 def sql_warehouse_dbus_per_hour(warehouse_size: str) -> Decimal:
@@ -157,9 +151,7 @@ def _get_azure_retail_price(query: str, description: str) -> Decimal:
 
 def get_azure_vm_hourly_rate(region: str, instance_type: str) -> Decimal:
     meter_name = (
-        instance_type[len("Standard_") :]
-        if instance_type.startswith("Standard_")
-        else instance_type
+        instance_type[len("Standard_") :] if instance_type.startswith("Standard_") else instance_type
     ).replace("_", " ")
     query = (
         "serviceName eq 'Virtual Machines' "
@@ -283,18 +275,12 @@ def estimate_sql_warehouse_cost(
             "'uv run python scripts/refresh_databricks_azure_dbu_map.py' or pass "
             "cost_per_hour."
         ) from exc
-    azure_fallback = (
-        lambda: get_azure_serverless_sql_dbu_hourly_rate(region)
-    ) if cloud_provider == "azure" else None
+    azure_fallback = (lambda: get_azure_serverless_sql_dbu_hourly_rate(region)) if cloud_provider == "azure" else None
     dbu_rate, pricing_source = resolve_dbu_rate(
         query_list_price=query_list_price,
         override=dbu_rate_override,
         fallback_rate=azure_fallback,
-        fallback_source=(
-            "azure_retail_catalog_serverless_sql_dbu"
-            if azure_fallback is not None
-            else None
-        ),
+        fallback_source=("azure_retail_catalog_serverless_sql_dbu" if azure_fallback is not None else None),
     )
     cost_per_hour = dbus_per_hour * dbu_rate
     return DatabricksPriceEstimate(

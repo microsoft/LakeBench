@@ -5,17 +5,13 @@ from __future__ import annotations
 import argparse
 import html
 import re
+import subprocess
+import sys
 import urllib.request
 from pathlib import Path
 
 SOURCE_URL = "https://azure.microsoft.com/en-us/pricing/details/databricks/"
-DEFAULT_OUTPUT = (
-    Path(__file__).resolve().parents[1]
-    / "src"
-    / "lakebench"
-    / "engines"
-    / "databricks_azure_dbu_map.py"
-)
+DEFAULT_OUTPUT = Path(__file__).resolve().parents[1] / "src" / "lakebench" / "engines" / "databricks_azure_dbu_map.py"
 
 SPARK_TABLES = {
     "all-purpose-compute-premium": "all-purpose-compute",
@@ -27,9 +23,7 @@ SQL_TABLE = "serverless-sql-premium"
 
 
 def _plain_text(fragment: str) -> str:
-    return " ".join(
-        html.unescape(re.sub(r"<[^>]+>", " ", fragment)).split()
-    )
+    return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", fragment)).split())
 
 
 def _table_section(page: str, table_filter: str) -> str:
@@ -48,11 +42,7 @@ def parse_spark_mappings(page: str) -> dict[tuple[str, str], tuple[str, str, flo
         series_matches = list(re.finditer(r"<h4[^>]*>(.*?)</h4>", section, re.DOTALL))
         for index, series_match in enumerate(series_matches):
             series = _plain_text(series_match.group(1))
-            series_end = (
-                series_matches[index + 1].start()
-                if index + 1 < len(series_matches)
-                else len(section)
-            )
+            series_end = series_matches[index + 1].start() if index + 1 < len(series_matches) else len(section)
             series_section = section[series_match.end() : series_end]
             for row in re.findall(r"<tr[^>]*>(.*?)</tr>", series_section, re.DOTALL):
                 cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL)
@@ -138,6 +128,10 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8", newline="\n") as output_file:
         output_file.write(output)
+    subprocess.run(
+        [sys.executable, "-m", "ruff", "format", str(args.output)],
+        check=True,
+    )
 
 
 if __name__ == "__main__":

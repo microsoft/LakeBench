@@ -85,8 +85,7 @@ class DatabricksSQLWarehouse(BaseEngine):
         self.warehouse_size = warehouse["cluster_size"]
         self.warehouse_type = str(warehouse.get("warehouse_type", "UNKNOWN"))
         self.serverless = bool(
-            warehouse.get("enable_serverless_compute", False)
-            or "SERVERLESS" in self.warehouse_type.upper()
+            warehouse.get("enable_serverless_compute", False) or "SERVERLESS" in self.warehouse_type.upper()
         )
         self.connection = self._create_connection()
         metastore_cloud, metastore_region, self.version = self._get_runtime_metadata()
@@ -97,9 +96,7 @@ class DatabricksSQLWarehouse(BaseEngine):
             self.execute_sql_statement("SET use_cached_result = False")
 
         workload_type = (
-            "serverless-sql-warehouse"
-            if self.serverless
-            else f"{self.warehouse_type.lower()}-sql-warehouse"
+            "serverless-sql-warehouse" if self.serverless else f"{self.warehouse_type.lower()}-sql-warehouse"
         )
         self.extended_engine_metadata.update(
             {
@@ -137,11 +134,7 @@ class DatabricksSQLWarehouse(BaseEngine):
                 "warehouse_name": warehouse_name,
                 "warehouse_size": self.warehouse_size,
                 "warehouse_type": self.warehouse_type,
-                "photon_enabled": (
-                    str(warehouse["enable_photon"])
-                    if "enable_photon" in warehouse
-                    else "unknown"
-                ),
+                "photon_enabled": (str(warehouse["enable_photon"]) if "enable_photon" in warehouse else "unknown"),
             }
         )
 
@@ -187,9 +180,7 @@ class DatabricksSQLWarehouse(BaseEngine):
         cloud = str(row["cloud"]).strip() if row["cloud"] is not None else ""
         region = str(row["region"]).strip() if row["region"] is not None else ""
         if not cloud or not region:
-            raise ValueError(
-                "current_metastore() did not return the Databricks cloud and region."
-            )
+            raise ValueError("current_metastore() did not return the Databricks cloud and region.")
         return cloud, region, str(row["dbsql_version"])
 
     def _query_list_price(self) -> Optional[Decimal]:
@@ -200,15 +191,9 @@ class DatabricksSQLWarehouse(BaseEngine):
             sku_filter = f"AND sku_name = '{escaped_sku_name}' "
         else:
             region_suffix = (
-                _AWS_SERVERLESS_SQL_REGION_SUFFIXES.get(self.region.lower())
-                if self.cloud_provider == "aws"
-                else None
+                _AWS_SERVERLESS_SQL_REGION_SUFFIXES.get(self.region.lower()) if self.cloud_provider == "aws" else None
             )
-            sku_filter = (
-                f"AND endswith(sku_name, '_{region_suffix}') "
-                if region_suffix is not None
-                else ""
-            )
+            sku_filter = f"AND endswith(sku_name, '_{region_suffix}') " if region_suffix is not None else ""
         try:
             result = self.execute_sql_query(
                 "SELECT sku_name, pricing.default AS price "
@@ -329,20 +314,15 @@ class DatabricksSQLWarehouse(BaseEngine):
                 return f"'{value}'"
             if isinstance(value, dict):
                 items = [
-                    f"'{str(key).replace(chr(39), chr(39) * 2)}', "
-                    f"'{str(item).replace(chr(39), chr(39) * 2)}'"
+                    f"'{str(key).replace(chr(39), chr(39) * 2)}', '{str(item).replace(chr(39), chr(39) * 2)}'"
                     for key, item in value.items()
                 ]
                 return f"map({', '.join(items)})" if items else "map()"
             return str(value)
 
         columns = list(results[0].keys())
-        values = ", ".join(
-            "(" + ", ".join(format_value(value) for value in row.values()) + ")" for row in results
-        )
-        self.execute_sql_statement(
-            f"INSERT INTO delta.`{table_uri}` ({', '.join(columns)}) VALUES {values}"
-        )
+        values = ", ".join("(" + ", ".join(format_value(value) for value in row.values()) + ")" for row in results)
+        self.execute_sql_statement(f"INSERT INTO delta.`{table_uri}` ({', '.join(columns)}) VALUES {values}")
 
     def get_total_cores(self) -> int:
         size_map = {
@@ -378,8 +358,7 @@ class DatabricksSQLWarehouse(BaseEngine):
         source_columns = list(self.execute_sql_query(f"{source} LIMIT 0", return_data=True).columns)
         mapping = self._resolve_column_name_mapping(table_name, source_columns, column_name_mapping)
         projection = ", ".join(
-            f"`{column}` AS `{mapping[column]}`" if column in mapping else f"`{column}`"
-            for column in source_columns
+            f"`{column}` AS `{mapping[column]}`" if column in mapping else f"`{column}`" for column in source_columns
         )
         if table_is_precreated:
             self.execute_sql_statement(
@@ -387,8 +366,7 @@ class DatabricksSQLWarehouse(BaseEngine):
             )
         else:
             self.execute_sql_statement(
-                f"CREATE TABLE {table_name} USING delta AS "
-                f"SELECT {projection} FROM parquet.`{parquet_folder_uri}`"
+                f"CREATE TABLE {table_name} USING delta AS SELECT {projection} FROM parquet.`{parquet_folder_uri}`"
             )
         if self.run_analyze_after_load:
             self.analyze_table(table_name)
@@ -411,8 +389,7 @@ class DatabricksSQLWarehouse(BaseEngine):
         source_columns = [name for name in sql_types if name != TRAILING_DELIMITER_COLUMN]
         mapping = self._resolve_column_name_mapping(table_name, source_columns, column_name_mapping)
         projection = ", ".join(
-            f"`{column}` AS `{mapping[column]}`" if column in mapping else f"`{column}`"
-            for column in source_columns
+            f"`{column}` AS `{mapping[column]}`" if column in mapping else f"`{column}`" for column in source_columns
         )
         source_path = posixpath.join(folder_uri, file_pattern)
         source = (
@@ -461,8 +438,7 @@ class DatabricksSQLWarehouse(BaseEngine):
             else "COLUMNS " + ", ".join(f"`{column.replace('`', '``')}`" for column in columns)
         )
         self.execute_sql_statement(
-            f"ANALYZE TABLE {self.full_catalog_schema_reference}.{table_name} "
-            f"COMPUTE STATISTICS FOR {column_clause}"
+            f"ANALYZE TABLE {self.full_catalog_schema_reference}.{table_name} COMPUTE STATISTICS FOR {column_clause}"
         )
 
     def vacuum_table(self, table_name: str, retain_hours: int = 168, retention_check: bool = True):
