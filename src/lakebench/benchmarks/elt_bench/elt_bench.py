@@ -6,6 +6,7 @@ from typing import Optional
 
 from ...engines.base import BaseEngine
 from ...engines.daft import Daft
+from ...engines.databricks_sql_warehouse import DatabricksSQLWarehouse
 from ...engines.duckdb import DuckDB
 from ...engines.fabric_data_warehouse import FabricDataWarehouse
 from ...engines.polars import Polars
@@ -15,6 +16,7 @@ from ...utils.query_utils import get_table_name_from_ddl, transpile_and_qualify_
 from ..base import BaseBenchmark, resolve_input_folder_uri
 from ..tpcds.tpcds import TPCDS
 from .engine_impl.daft import DaftELTBench
+from .engine_impl.databricks_sql_warehouse import DatabricksSQLWarehouseELTBench
 from .engine_impl.duckdb import DuckDBELTBench
 from .engine_impl.fabric_data_warehouse import FabricDataWarehouseELTBench
 from .engine_impl.polars import PolarsELTBench
@@ -55,6 +57,7 @@ class ELTBench(BaseBenchmark):
         Daft: DaftELTBench,
         Polars: PolarsELTBench,
         Sail: SailELTBench,
+        DatabricksSQLWarehouse: DatabricksSQLWarehouseELTBench,
         FabricDataWarehouse: FabricDataWarehouseELTBench,
     }
     MODE_REGISTRY = ["light"]

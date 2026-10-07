@@ -279,12 +279,55 @@ class BaseEngine(ABC):
         Otherwise, it returns None.
         """
         if self.cost_per_hour is None and self.cost_per_vcore_hour is not None:
-            self.cost_per_hour = Decimal(self.get_total_cores()) * Decimal(self.cost_per_vcore_hour)
+            self.cost_per_hour = Decimal(self.get_total_cores()) * Decimal(str(self.cost_per_vcore_hour))
         elif self.cost_per_hour is None:
             return None
 
-        job_cost = Decimal(self.cost_per_hour) * (Decimal(duration_ms) / Decimal(3600000))  # Convert ms to hours
+        job_cost = Decimal(str(self.cost_per_hour)) * (Decimal(duration_ms) / Decimal(3600000))  # Convert ms to hours
         return job_cost.quantize(Decimal("0.0000000000"))  # Ensure precision matches DECIMAL(18,10)
+
+    def _configure_cost_inputs(
+        self,
+        cost_per_vcore_hour: Optional[float] = None,
+        cost_per_hour: Optional[float] = None,
+        automatic_cost_per_vcore_hour: Optional[float] = None,
+    ) -> None:
+        """Configure mutually exclusive manual costs, with an optional automatic vCore fallback."""
+        if cost_per_vcore_hour is not None and cost_per_hour is not None:
+            raise ValueError("Specify only one of cost_per_vcore_hour or cost_per_hour.")
+
+        self.cost_per_vcore_hour = None
+        self.cost_per_hour = None
+        if cost_per_hour is not None:
+            self.cost_per_hour = float(cost_per_hour)
+            self.extended_engine_metadata.update(
+                {
+                    "cost_per_hour": str(cost_per_hour),
+                    "pricing_source": "explicit_cost_per_hour",
+                }
+            )
+        elif cost_per_vcore_hour is not None:
+            self.cost_per_vcore_hour = float(cost_per_vcore_hour)
+            self.extended_engine_metadata.update(
+                {
+                    "cost_per_vcore_hour": str(cost_per_vcore_hour),
+                    "pricing_source": "explicit_cost_per_vcore_hour",
+                }
+            )
+        elif automatic_cost_per_vcore_hour is not None:
+            self.cost_per_vcore_hour = float(automatic_cost_per_vcore_hour)
+            self.extended_engine_metadata.update(
+                {
+                    "cost_per_vcore_hour": str(automatic_cost_per_vcore_hour),
+                    "pricing_source": "automatic_vm_retail_rate",
+                }
+            )
+
+    def _materialize_cost_per_hour(self) -> Optional[float]:
+        """Resolve a vCore rate to a total hourly rate for metadata and repeated cost calculations."""
+        if self.cost_per_hour is None and self.cost_per_vcore_hour is not None:
+            self.cost_per_hour = float(Decimal(self.get_total_cores()) * Decimal(str(self.cost_per_vcore_hour)))
+        return self.cost_per_hour
 
     def create_external_location(self, location_uri: str):
         """

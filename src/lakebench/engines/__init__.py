@@ -1,5 +1,7 @@
 from .base import BaseEngine, MissingDependenciesError
 from .daft import Daft
+from .databricks_spark import DatabricksSpark
+from .databricks_sql_warehouse import DatabricksSQLWarehouse
 from .delta_rs import DeltaRs
 from .duckdb import DuckDB
 from .fabric_data_warehouse import FabricDataWarehouse, FabricWarehouse

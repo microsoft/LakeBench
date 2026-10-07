@@ -28,6 +28,7 @@ class Polars(BaseEngine):
         self,
         schema_or_working_directory_uri: str,
         cost_per_vcore_hour: Optional[float] = None,
+        cost_per_hour: Optional[float] = None,
         storage_options: Optional[dict[str, Any]] = None,
     ):
         """
@@ -39,6 +40,8 @@ class Polars(BaseEngine):
         cost_per_vcore_hour : float, optional
             The cost per vCore hour for the compute runtime. If None, cost calculations are auto calculated
             where possible.
+        cost_per_hour : float, optional
+            The total hourly cost for the compute runtime. Mutually exclusive with ``cost_per_vcore_hour``.
         storage_options : dict, optional
             A dictionary of storage options to pass to the engine for filesystem access. Optional as LakeBench
             will attempt to read from environment variables depeneding on the compute runtime.
@@ -53,7 +56,11 @@ class Polars(BaseEngine):
         self.schema_name = None
         self.sql = pl.SQLContext()
         self.version: str = f"{version('polars')} (deltalake=={version('deltalake')})"
-        self.cost_per_vcore_hour = cost_per_vcore_hour or getattr(self, "_autocalc_usd_cost_per_vcore_hour", None)
+        self._configure_cost_inputs(
+            cost_per_vcore_hour=cost_per_vcore_hour,
+            cost_per_hour=cost_per_hour,
+            automatic_cost_per_vcore_hour=getattr(self, "_autocalc_usd_cost_per_vcore_hour", None),
+        )
 
     def load_parquet_to_delta(
         self,

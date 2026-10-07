@@ -91,6 +91,44 @@ class TestGetJobCost:
         assert float(cost) == pytest.approx(expected, rel=1e-6)
 
 
+class TestConfigureCostInputs:
+    def test_rejects_both_manual_cost_inputs(self):
+        engine = _MinimalEngine()
+        with pytest.raises(ValueError, match="Specify only one"):
+            engine._configure_cost_inputs(cost_per_vcore_hour=0.1, cost_per_hour=1.0)
+
+    def test_configures_total_hourly_cost(self):
+        engine = _MinimalEngine()
+        engine._configure_cost_inputs(cost_per_hour=2.5)
+
+        assert engine.cost_per_hour == 2.5
+        assert engine.cost_per_vcore_hour is None
+        assert engine.extended_engine_metadata["pricing_source"] == "explicit_cost_per_hour"
+
+    def test_configures_per_vcore_cost_and_materializes_total(self):
+        engine = _MinimalEngine()
+        engine._configure_cost_inputs(cost_per_vcore_hour=0.25)
+
+        assert engine._materialize_cost_per_hour() == pytest.approx(engine.get_total_cores() * 0.25)
+        assert engine.extended_engine_metadata["pricing_source"] == "explicit_cost_per_vcore_hour"
+
+    def test_zero_manual_rate_is_not_replaced_by_automatic_rate(self):
+        engine = _MinimalEngine()
+        engine._configure_cost_inputs(
+            cost_per_vcore_hour=0.0,
+            automatic_cost_per_vcore_hour=1.0,
+        )
+
+        assert engine.cost_per_vcore_hour == 0.0
+
+
+def test_vcore_engines_support_both_manual_cost_inputs():
+    for engine_class in (Spark, FabricSpark, SynapseSpark, HDISpark, DuckDB, Polars, Daft, Sail):
+        parameters = inspect.signature(engine_class.__init__).parameters
+        assert "cost_per_vcore_hour" in parameters
+        assert "cost_per_hour" in parameters
+
+
 class TestAnalyzeTable:
     def test_raises_not_implemented(self):
         engine = _MinimalEngine()

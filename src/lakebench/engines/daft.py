@@ -24,7 +24,12 @@ class Daft(BaseEngine):
     )
     INSTALL_EXTRA = "daft"
 
-    def __init__(self, schema_or_working_directory_uri: str, cost_per_vcore_hour: Optional[float] = None):
+    def __init__(
+        self,
+        schema_or_working_directory_uri: str,
+        cost_per_vcore_hour: Optional[float] = None,
+        cost_per_hour: Optional[float] = None,
+    ):
         """
         Parameters
         ----------
@@ -34,6 +39,8 @@ class Daft(BaseEngine):
         cost_per_vcore_hour : float, optional
             The cost per vCore hour for the compute runtime. If None, cost calculations are auto calculated
             where possible.
+        cost_per_hour : float, optional
+            The total hourly cost for the compute runtime. Mutually exclusive with ``cost_per_vcore_hour``.
         """
 
         super().__init__(schema_or_working_directory_uri)
@@ -53,7 +60,11 @@ class Daft(BaseEngine):
                 raise ValueError("Daft engine does not support OneLake paths. Provide an ADLS Gen2 path instead.")
 
         self.version: str = f"{version('daft')} (deltalake=={version('deltalake')})"
-        self.cost_per_vcore_hour = cost_per_vcore_hour or getattr(self, "_autocalc_usd_cost_per_vcore_hour", None)
+        self._configure_cost_inputs(
+            cost_per_vcore_hour=cost_per_vcore_hour,
+            cost_per_hour=cost_per_hour,
+            automatic_cost_per_vcore_hour=getattr(self, "_autocalc_usd_cost_per_vcore_hour", None),
+        )
 
     def table_path(self, table_name: str) -> str:
         """Return the Daft-compatible path/URI for *table_name*.

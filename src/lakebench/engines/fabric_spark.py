@@ -25,6 +25,7 @@ class FabricSpark(Spark):
         lakehouse_schema_name: str,
         spark_measure_telemetry: bool = False,
         cost_per_vcore_hour: Optional[float] = None,
+        cost_per_hour: Optional[float] = None,
         collect_stats_on_write: bool = True,
         compute_stats_all_cols: Optional[bool] = None,
         tblproperties: Optional[dict] = None,
@@ -41,6 +42,8 @@ class FabricSpark(Spark):
         cost_per_vcore_hour : float, optional
             The cost per vCore hour for the Spark cluster. If None, cost calculations are auto calculated
             where possible.
+        cost_per_hour : float, optional
+            The total hourly cost for the Spark cluster. Mutually exclusive with ``cost_per_vcore_hour``.
         collect_stats_on_write : bool, default True
             Whether Fabric Delta extended statistics should be collected during write operations.
         compute_stats_all_cols : bool, optional
@@ -58,6 +61,7 @@ class FabricSpark(Spark):
             schema_name=lakehouse_schema_name,
             spark_measure_telemetry=spark_measure_telemetry,
             cost_per_vcore_hour=cost_per_vcore_hour,
+            cost_per_hour=cost_per_hour,
             compute_stats_all_cols=False,
             tblproperties=tblproperties,
         )
@@ -70,8 +74,12 @@ class FabricSpark(Spark):
         self.version: str = (
             f"{self.spark.sparkContext.version} (vhd_name=={self.spark.conf.get('spark.synapse.vhd.name')})"
         )
-        self.cost_per_vcore_hour = cost_per_vcore_hour or getattr(self, "_autocalc_usd_cost_per_vcore_hour", None)
-        self.cost_per_hour = self.get_total_cores() * self.cost_per_vcore_hour
+        self._configure_cost_inputs(
+            cost_per_vcore_hour=cost_per_vcore_hour,
+            cost_per_hour=cost_per_hour,
+            automatic_cost_per_vcore_hour=getattr(self, "_autocalc_usd_cost_per_vcore_hour", None),
+        )
+        self._materialize_cost_per_hour()
 
         url = self.spark.sparkContext.uiWebUrl
         # Parse webUrl string
@@ -87,7 +95,7 @@ class FabricSpark(Spark):
         self.extended_engine_metadata.update(
             {
                 "spark_history_url": f"https://{self.spark_configs['spark.trident.pbienv'].lower()}.powerbi.com/workloads/de-ds/sparkmonitor/{artifact_id}/{activity_id}?ctid={tenant_id}",
-                "cost_per_hour": Decimal(self.cost_per_hour).quantize(Decimal("0.0000")),
+                "cost_per_hour": Decimal(str(self.cost_per_hour)).quantize(Decimal("0.0000")),
                 "capacity_id": self.capacity_id,
             }
         )

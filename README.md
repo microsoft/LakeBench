@@ -69,7 +69,9 @@ LakeBench supports multiple lakehouse compute engines. Each benchmark scenario d
 | Fabric Spark    |    ✅    |   ✅   |   ✅  |    ✅    |
 | Synapse Spark   |    ✅    |   ✅   |   ✅  |    ✅    |
 | HDInsight Spark |    ✅    |   ✅   |   ✅  |    ✅    |
+| Databricks Spark (AWS/Azure/GCP) |    ✅    |   ✅   |   ✅  |    ✅    |
 | Fabric Data Warehouse|    ✅    |   ✅   |   ✅  |    ✅    |
+| Databricks SQL Warehouse (AWS/Azure/GCP) |    ✅    |   ✅   |   ✅  |    ✅    |
 | DuckDB          |    ✅    |   ✅   |   ✅  |    ✅    |
 | Polars          |    ✅    |   ⚠️   |   ⚠️  |    ⚠️    |
 | Daft            |    ❌    |   ❌   |   ❌  |    ⚠️    |
@@ -104,6 +106,7 @@ Multiple modalities doesn't end at just benchmarks and engines, LakeBench also s
 
 **Runtimes**:
   - Local (Windows)
+  - Databricks (AWS, Azure, and Google Cloud)
   - Fabric
   - Synapse
   - HDInsight
@@ -174,7 +177,7 @@ class MyCustomEngine(BaseEngine):
 Install from PyPi:
 
 ```bash
-pip install lakebench[duckdb,polars,fabric_data_warehouse,sail,sparkmeasure]
+pip install lakebench[duckdb,polars,fabric_data_warehouse,databricks_spark,databricks_sql_warehouse,sail,sparkmeasure]
 ```
 
 Engines import their heavy dependencies lazily, so a forgotten extra used to surface partway into a run as an error that named neither the engine nor the package to install. Every engine now checks its dependencies when it is constructed and reports all of the missing ones at once:
@@ -342,6 +345,86 @@ benchmark.run()
 ```
 
 > _Note: The `spark_measure_telemetry` flag can be enabled to capture stage metrics in the results. The `sparkmeasure` install option must be used when `spark_measure_telemetry` is enabled (`%pip install lakebench[sparkmeasure]`). Additionally, the Spark-Measure JAR must be installed from Maven: https://mvnrepository.com/artifact/ch.cern.sparkmeasure/spark-measure_2.13/0.24_
+
+### Databricks Spark
+```python
+from lakebench.benchmarks import TPCDS
+from lakebench.engines import DatabricksSpark
+
+engine = DatabricksSpark(
+    catalog_name="main",
+    schema_name="lakebench",
+    schema_uri="s3://bucket/lakebench",  # abfss://... on Azure or gs://... on GCP
+    cost_per_hour=12.00,  # Or cost_per_vcore_hour; optional manual estimate on AWS and GCP
+    workload_type="jobs-compute",  # Use "all-purpose-compute" for interactive clusters
+)
+
+benchmark = TPCDS(
+    engine=engine,
+    scenario_name="sf1000",
+    scale_factor=1000,
+    input_folder_uri="s3://bucket/tpcds/sf1000",
+)
+benchmark.run()
+```
+
+Install Spark support with `pip install lakebench[databricks_spark]`. The engine detects AWS, Azure, or
+GCP from Databricks runtime metadata and writes `cloud_provider`, `compute_region`, workload, and pricing
+components to `engine_properties`. For fixed-size Azure clusters, automatic estimates combine the
+published workload-and-VM-specific DBU consumption mapping with regional DBU and VM rates from the Azure
+Retail Prices API. The estimate uses public pay-as-you-go list prices and does not include private
+discounts, commitments, or negotiated pricing.
+
+On AWS and GCP, provide either an all-inclusive manual `cost_per_hour` or `cost_per_vcore_hour` to report
+estimated job cost; otherwise LakeBench emits a warning and leaves the estimate unset. LakeBench does not
+call AWS or GCP cloud pricing catalogs. Manual rates should include both Databricks DBU and underlying
+cloud infrastructure costs. The two manual options are mutually exclusive. Refresh the generated Azure
+DBU mapping from the public Azure Databricks pricing page with:
+
+```bash
+uv run python scripts/refresh_databricks_azure_dbu_map.py
+```
+
+### Databricks SQL Warehouse
+```python
+import os
+
+from lakebench.benchmarks import TPCDS
+from lakebench.engines import DatabricksSQLWarehouse
+
+engine = DatabricksSQLWarehouse(
+    server_hostname="dbc-....cloud.databricks.com",
+    warehouse_name="Serverless Starter Warehouse",
+    catalog_name="main",
+    schema_name="lakebench",
+    access_token=os.environ["DATABRICKS_TOKEN"],
+    cost_per_hour=12.00,  # Optional fallback; serverless can use list_prices on any cloud
+)
+
+benchmark = TPCDS(
+    engine=engine,
+    scenario_name="sf1000",
+    scale_factor=1000,
+    input_folder_uri="s3://bucket/tpcds/sf1000",
+)
+benchmark.run()
+```
+
+Install SQL Warehouse support with `pip install lakebench[databricks_sql_warehouse]`. LakeBench always
+detects the SQL Warehouse cloud and region from `current_metastore()`. On AWS, Azure, and GCP,
+serverless warehouse estimates use the published warehouse-size DBU consumption and the current
+cloud-specific USD list price from `system.billing.list_prices`; the serverless DBU price includes
+infrastructure.
+LakeBench first resolves the warehouse's exact billed SKU from recent `system.billing.usage`. When no
+usage exists yet, AWS falls back to the regional serverless SQL SKU; pricing tiers are accepted only
+when they resolve to the same rate. On Azure, unavailable or inaccessible billing tables fall back to
+the exact regional `Premium Serverless SQL DBU` meter from the public Azure Retail Prices API. On AWS
+and GCP, if the billing tables are unavailable or the matching SKUs do not yield one unambiguous active
+rate, LakeBench logs a warning and leaves the estimate unset. In that case, provide an all-inclusive
+manual `cost_per_hour`. Classic and pro warehouses also use manual `cost_per_hour`; without it,
+LakeBench runs the benchmark but does not report estimated cost. SQL Warehouse intentionally does not
+accept a per-vCore rate. The access token is used for both the Warehouse REST API and SQL connector and
+is never added to result metadata.
 
 ### Fabric Data Warehouse
 ```python

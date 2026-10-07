@@ -15,6 +15,7 @@ class SynapseSpark(Spark):
         schema_uri: Optional[str] = None,
         spark_measure_telemetry: bool = False,
         cost_per_vcore_hour: Optional[float] = None,
+        cost_per_hour: Optional[float] = None,
         tblproperties: Optional[dict] = None,
     ):
         """
@@ -29,6 +30,8 @@ class SynapseSpark(Spark):
         cost_per_vcore_hour : float, optional
             The cost per vCore hour for the Spark cluster. If None, cost calculations are auto calculated
             where possible.
+        cost_per_hour : float, optional
+            The total hourly cost for the Spark cluster. Mutually exclusive with ``cost_per_vcore_hour``.
         tblproperties : dict, optional
             Delta table properties to inject into CREATE TABLE statements.
         """
@@ -39,6 +42,7 @@ class SynapseSpark(Spark):
             schema_uri=schema_uri,
             spark_measure_telemetry=spark_measure_telemetry,
             cost_per_vcore_hour=cost_per_vcore_hour,
+            cost_per_hour=cost_per_hour,
             compute_stats_all_cols=False,
             tblproperties=tblproperties,
         )
@@ -49,17 +53,19 @@ class SynapseSpark(Spark):
             f"{self.spark.sparkContext.version} (vhd_name=={self.spark.conf.get('spark.synapse.vhd.name')})"
         )
         region = self.spark.conf.get("spark.cluster.region")
-        self.cost_per_vcore_hour = (
-            cost_per_vcore_hour
-            if cost_per_vcore_hour is not None
-            else self._get_vm_retail_rate(region=region, sku="vCore")
+        self._configure_cost_inputs(
+            cost_per_vcore_hour=cost_per_vcore_hour,
+            cost_per_hour=cost_per_hour,
+            automatic_cost_per_vcore_hour=self._get_vm_retail_rate(region=region, sku="vCore")
+            if cost_per_vcore_hour is None and cost_per_hour is None
+            else None,
         )
-        self.cost_per_hour = self.get_total_cores() * self.cost_per_vcore_hour
+        self._materialize_cost_per_hour()
 
         self.extended_engine_metadata.update(
             {
                 "spark_history_url": self.spark_configs["spark.tracking.webUrl"],
-                "cost_per_hour": Decimal(self.cost_per_hour).quantize(Decimal("0.0000")),
+                "cost_per_hour": Decimal(str(self.cost_per_hour)).quantize(Decimal("0.0000")),
                 "compute_region": region,
             }
         )
