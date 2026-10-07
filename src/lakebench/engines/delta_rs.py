@@ -2,8 +2,14 @@ from .base import BaseEngine
 
 
 class DeltaRs(BaseEngine):
-    """
-    Delta-Rs Engine
+    """Provide shared Delta Lake writes for non-Spark engines.
+
+    Notes
+    -----
+    This is an internal engine helper rather than a standalone benchmark
+    execution engine. Non-Spark engines delegate Delta table persistence to
+    this class. It exposes the delta-rs ``write_deltalake`` function and
+    ``DeltaTable`` class after construction.
     """
 
     def __init__(self):

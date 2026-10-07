@@ -7,8 +7,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 from sqlglot import exp
 
-from lakebench.engines.databricks_azure_dbu_map import AZURE_SPARK_DBU_MAP
-from lakebench.engines.databricks_pricing import (
+from lakebench.engines.databricks_spark import DatabricksSpark
+from lakebench.engines.databricks_sql_warehouse import DatabricksSQLWarehouse
+from lakebench.engines.resources.databricks_azure_dbu_map import AZURE_SPARK_DBU_MAP
+from lakebench.engines.resources.databricks_pricing import (
     DatabricksPricingError,
     estimate_azure_spark_cost,
     estimate_sql_warehouse_cost,
@@ -18,8 +20,6 @@ from lakebench.engines.databricks_pricing import (
     log_if_manual_compute_cost_missing,
     sql_warehouse_dbus_per_hour,
 )
-from lakebench.engines.databricks_spark import DatabricksSpark
-from lakebench.engines.databricks_sql_warehouse import DatabricksSQLWarehouse
 
 
 @pytest.mark.parametrize(
@@ -81,7 +81,7 @@ def test_serverless_sql_warehouse_estimate_uses_account_list_price(cloud_provide
     assert estimate.pricing_source == "databricks_system_billing_list_prices"
 
 
-@patch("lakebench.engines.databricks_pricing.get_azure_serverless_sql_dbu_hourly_rate")
+@patch("lakebench.engines.resources.databricks_pricing.get_azure_serverless_sql_dbu_hourly_rate")
 def test_azure_serverless_sql_warehouse_falls_back_to_retail_api(mock_retail_rate):
     mock_retail_rate.return_value = Decimal("0.70")
 
@@ -99,7 +99,7 @@ def test_azure_serverless_sql_warehouse_falls_back_to_retail_api(mock_retail_rat
     mock_retail_rate.assert_called_once_with("eastus")
 
 
-@patch("lakebench.engines.databricks_pricing._get_azure_retail_price")
+@patch("lakebench.engines.resources.databricks_pricing._get_azure_retail_price")
 def test_azure_serverless_sql_rate_uses_exact_regional_meter(
     mock_retail_price,
 ):
@@ -117,8 +117,8 @@ def test_azure_serverless_sql_rate_uses_exact_regional_meter(
     assert "type eq 'Consumption'" in query
 
 
-@patch("lakebench.engines.databricks_pricing.get_azure_dbu_hourly_rate")
-@patch("lakebench.engines.databricks_pricing.get_azure_vm_hourly_rate")
+@patch("lakebench.engines.resources.databricks_pricing.get_azure_dbu_hourly_rate")
+@patch("lakebench.engines.resources.databricks_pricing.get_azure_vm_hourly_rate")
 def test_azure_cluster_estimate_combines_mapped_dbus_and_infrastructure_cost(
     mock_vm_rate,
     mock_dbu_rate,
@@ -156,7 +156,7 @@ def test_azure_dbu_mapping_distinguishes_workload_and_photon():
         ("all-purpose-compute-with-photon", "Premium All-purpose Photon DBU"),
     ],
 )
-@patch("lakebench.engines.databricks_pricing._get_azure_retail_price")
+@patch("lakebench.engines.resources.databricks_pricing._get_azure_retail_price")
 def test_azure_dbu_rate_uses_exact_workload_meter(
     mock_retail_price,
     workload_type,
@@ -170,7 +170,10 @@ def test_azure_dbu_rate_uses_exact_workload_meter(
 
 @pytest.mark.parametrize("cloud_provider", ["aws", "gcp"])
 def test_aws_and_gcp_log_when_manual_compute_cost_is_missing(cloud_provider, caplog):
-    with caplog.at_level(logging.WARNING, logger="lakebench.engines.databricks_pricing"):
+    with caplog.at_level(
+        logging.WARNING,
+        logger="lakebench.engines.resources.databricks_pricing",
+    ):
         log_if_manual_compute_cost_missing(cloud_provider, None, None)
 
     assert "Estimated job cost will not be reported" in caplog.text
@@ -204,6 +207,8 @@ def test_databricks_spark_exposes_both_manual_cost_inputs():
     parameters = inspect.signature(DatabricksSpark.__init__).parameters
     assert "cost_per_vcore_hour" in parameters
     assert "cost_per_hour" in parameters
+    assert "dbu_rate" not in parameters
+    assert "infrastructure_cost_per_hour" not in parameters
 
 
 def test_azure_cluster_estimate_explains_how_to_refresh_missing_sku():
@@ -294,7 +299,7 @@ def test_sql_warehouse_pricing_permission_failure_logs_without_crashing(caplog):
         )
         stack.enter_context(
             patch(
-                "lakebench.engines.databricks_pricing.get_azure_serverless_sql_dbu_hourly_rate",
+                "lakebench.engines.resources.databricks_pricing.get_azure_serverless_sql_dbu_hourly_rate",
                 return_value=Decimal("0.70"),
             )
         )

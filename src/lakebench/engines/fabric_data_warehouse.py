@@ -21,16 +21,12 @@ class FabricDataWarehouse(BaseEngine):
 
     Attributes
     ----------
-    SQLGLOT_DIALECT : str
-        Specifies the SQL dialect to be used by the engine when SQL transpiling
-        is required.
-    SUPPORTS_ONELAKE : bool
-        Indicates if the engine supports OneLake URIs
-        (e.g., abfss://workspace@onelake.dfs.fabric.microsoft.com/...)
-    SUPPORTS_SCHEMA_PREP : bool
-        Indicates if the engine supports schema preparation (creation of empty table with defined schema)
-    SUPPORTS_MOUNT_PATH : bool
-        Indicates if the engine supports mount URIs (e.g., /mnt/...)
+    warehouse_name : str
+        Name of the Fabric Data Warehouse.
+    warehouse_server : str
+        SQL endpoint hostname for the Fabric Data Warehouse.
+    schema_name : str
+        Name of the warehouse schema used for benchmark tables.
 
     Notes
     -----

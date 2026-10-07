@@ -9,8 +9,25 @@ from .delta_rs import DeltaRs
 
 
 class Polars(BaseEngine):
-    """
-    Polars Engine
+    """Execute LakeBench workloads with the Polars SQL engine.
+
+    Attributes
+    ----------
+    schema_or_working_directory_uri : str
+        Base URI used to store Delta tables.
+    cost_per_vcore_hour : float, optional
+        Retail cost per vCore hour used for estimated job cost.
+    cost_per_hour : float, optional
+        Total hourly compute cost, mutually exclusive with
+        ``cost_per_vcore_hour``.
+    storage_options : dict, optional
+        Filesystem credentials and options passed to Delta Lake clients.
+
+    Notes
+    -----
+    Polars reads benchmark data into DataFrames and delegates Delta table
+    persistence to delta-rs. SQL is rendered with the DuckDB SQLGlot dialect
+    for compatibility with the Polars SQL surface.
     """
 
     SQLGLOT_DIALECT = "duckdb"

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from .databricks_pricing import (
+from .resources.databricks_pricing import (
     DatabricksPricingError,
     estimate_azure_spark_cost,
     infer_cloud_provider,
@@ -15,13 +15,41 @@ logger = logging.getLogger(__name__)
 
 
 class DatabricksSpark(Spark):
-    """Databricks Spark engine."""
+    """Execute LakeBench workloads on Databricks Spark compute.
+
+    Attributes
+    ----------
+    schema_name : str
+        Name of the Databricks schema used for benchmark tables.
+    schema_uri : str, optional
+        Storage location assigned to the schema.
+    catalog_name : str, optional
+        Databricks catalog containing the benchmark schema.
+    spark_measure_telemetry : bool, optional
+        Whether to collect sparkMeasure execution telemetry.
+    cost_per_vcore_hour : float, optional
+        Retail cost per vCore hour used for estimated job cost.
+    cost_per_hour : float, optional
+        Total hourly compute cost, mutually exclusive with
+        ``cost_per_vcore_hour``.
+    compute_stats_all_cols : bool, optional
+        Deprecated compatibility option for post-load column statistics.
+    tblproperties : dict, optional
+        Delta table properties added to table creation statements.
+
+    Notes
+    -----
+    Cloud provider, region, workload type, Photon state, and Unity Catalog
+    state are detected automatically from Databricks runtime configuration.
+    Jobs Compute and All-Purpose Compute are supported. Dedicated access mode
+    is required because LakeBench uses ``SparkContext`` to label timed phases
+    and query IDs in the Spark UI. Azure fixed-size clusters can resolve
+    automatic DBU and infrastructure pricing from public Azure APIs.
+    """
 
     SUPPORTS_MOUNT_PATH = True
     SUPPORTS_ONELAKE = False
     SUPPORTS_SCHEMA_PREP = True
-    REQUIRED_MODULES = ("pyspark", "requests")
-    INSTALL_EXTRA = "databricks_spark"
 
     def __init__(
         self,
@@ -31,10 +59,6 @@ class DatabricksSpark(Spark):
         spark_measure_telemetry: bool = False,
         cost_per_vcore_hour: Optional[float] = None,
         cost_per_hour: Optional[float] = None,
-        dbu_rate: Optional[float] = None,
-        infrastructure_cost_per_hour: Optional[float] = None,
-        workload_type: str = "jobs-compute",
-        cloud_provider: Optional[str] = None,
         compute_stats_all_cols: bool = False,
         tblproperties: Optional[dict] = None,
     ):
@@ -46,9 +70,6 @@ class DatabricksSpark(Spark):
             compute_stats_all_cols=compute_stats_all_cols,
             tblproperties=tblproperties,
         )
-
-        if workload_type not in {"jobs-compute", "all-purpose-compute"}:
-            raise ValueError("workload_type must be 'jobs-compute' or 'all-purpose-compute'.")
 
         runtime_version = self.spark.conf.get(
             "spark.databricks.clusterUsageTags.sparkVersion",
@@ -65,15 +86,19 @@ class DatabricksSpark(Spark):
             and catalog_name != "hive_metastore"
         )
         self.cloud_provider = infer_cloud_provider(
-            explicit_cloud_provider=cloud_provider,
+            explicit_cloud_provider=None,
             spark_configs=self.spark_configs,
         )
         self.region = self.spark.conf.get(
             "spark.databricks.clusterUsageTags.region",
             None,
         )
-        self.workload_type = workload_type
-        pricing_workload_type = f"{workload_type}-with-photon" if self.photon_enabled else workload_type
+        self.workload_type = (
+            "jobs-compute"
+            if self.spark_configs.get("spark.databricks.clusterUsageTags.workloadType", "unknown") == "AUTOMATED"
+            else "all-purpose-compute"
+        )
+        pricing_workload_type = f"{self.workload_type}-with-photon" if self.photon_enabled else self.workload_type
 
         workspace_url = self.spark_configs.get("spark.databricks.workspaceUrl")
         cluster_id = self.spark_configs.get("spark.databricks.clusterUsageTags.clusterId")
@@ -111,8 +136,6 @@ class DatabricksSpark(Spark):
         elif self.cloud_provider == "azure":
             self._configure_automatic_pricing(
                 pricing_workload_type=pricing_workload_type,
-                dbu_rate=dbu_rate,
-                infrastructure_cost_per_hour=infrastructure_cost_per_hour,
             )
         else:
             self.extended_engine_metadata["pricing_source"] = "not_configured"
@@ -120,8 +143,6 @@ class DatabricksSpark(Spark):
     def _configure_automatic_pricing(
         self,
         pricing_workload_type: str,
-        dbu_rate: Optional[float],
-        infrastructure_cost_per_hour: Optional[float],
     ) -> None:
         if (
             self.spark.conf.get(
@@ -166,8 +187,6 @@ class DatabricksSpark(Spark):
                 worker_instance_type=worker_sku,
                 worker_count=int(worker_count),
                 workload_type=pricing_workload_type,
-                dbu_rate_override=dbu_rate,
-                infrastructure_cost_per_hour_override=infrastructure_cost_per_hour,
             )
         except DatabricksPricingError as exc:
             logger.warning("Estimated job cost will not be reported: %s", exc)

@@ -10,10 +10,25 @@ from .delta_rs import DeltaRs
 
 
 class Sail(BaseEngine):
-    """
-    Sail Engine
+    """Execute LakeBench workloads through the Sail Spark Connect server.
 
-    File system support: https://docs.lakesail.com/sail/main/guide/storage/
+    Attributes
+    ----------
+    schema_or_working_directory_uri : str
+        Base URI used to store Delta tables.
+    cost_per_vcore_hour : float, optional
+        Retail cost per vCore hour used for estimated job cost.
+    cost_per_hour : float, optional
+        Total hourly compute cost, mutually exclusive with
+        ``cost_per_vcore_hour``.
+    storage_options : dict, optional
+        Filesystem credentials and options passed to Delta Lake clients.
+
+    Notes
+    -----
+    Sail starts a shared Spark Connect server and session on first use. Delta
+    writes use delta-rs because Sail subclasses ``BaseEngine`` rather than the
+    generic ``Spark`` engine.
     """
 
     _SAIL_SERVER = None
