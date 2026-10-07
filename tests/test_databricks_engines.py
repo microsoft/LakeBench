@@ -1,5 +1,6 @@
 import inspect
 import logging
+from contextlib import ExitStack
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
@@ -252,24 +253,51 @@ def test_sql_warehouse_pricing_permission_failure_logs_without_crashing(caplog):
         "warehouse_type": "SERVERLESS",
         "enable_serverless_compute": True,
     }
-    with (
-        patch.object(DatabricksSQLWarehouse, "verify_dependencies"),
-        patch.object(DatabricksSQLWarehouse, "_detect_runtime", return_value="local_unknown"),
-        patch.object(DatabricksSQLWarehouse, "_detect_os", return_value="Linux"),
-        patch.object(DatabricksSQLWarehouse, "_get_warehouse", return_value=warehouse_definition),
-        patch.object(DatabricksSQLWarehouse, "_create_connection", return_value=MagicMock()),
-        patch.object(
-            DatabricksSQLWarehouse,
-            "_get_runtime_metadata",
-            return_value=("azure", "eastus", "2026.35"),
-        ),
-        patch.object(DatabricksSQLWarehouse, "execute_sql_statement"),
-        patch.object(DatabricksSQLWarehouse, "_query_list_price", return_value=None),
-        patch(
-            "lakebench.engines.databricks_pricing.get_azure_serverless_sql_dbu_hourly_rate",
-            return_value=Decimal("0.70"),
-        ),
-    ):
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(DatabricksSQLWarehouse, "verify_dependencies"))
+        stack.enter_context(
+            patch.object(
+                DatabricksSQLWarehouse,
+                "_detect_runtime",
+                return_value="local_unknown",
+            )
+        )
+        stack.enter_context(patch.object(DatabricksSQLWarehouse, "_detect_os", return_value="Linux"))
+        stack.enter_context(
+            patch.object(
+                DatabricksSQLWarehouse,
+                "_get_warehouse",
+                return_value=warehouse_definition,
+            )
+        )
+        stack.enter_context(
+            patch.object(
+                DatabricksSQLWarehouse,
+                "_create_connection",
+                return_value=MagicMock(),
+            )
+        )
+        stack.enter_context(
+            patch.object(
+                DatabricksSQLWarehouse,
+                "_get_runtime_metadata",
+                return_value=("azure", "eastus", "2026.35"),
+            )
+        )
+        stack.enter_context(patch.object(DatabricksSQLWarehouse, "execute_sql_statement"))
+        stack.enter_context(
+            patch.object(
+                DatabricksSQLWarehouse,
+                "_query_list_price",
+                return_value=None,
+            )
+        )
+        stack.enter_context(
+            patch(
+                "lakebench.engines.databricks_pricing.get_azure_serverless_sql_dbu_hourly_rate",
+                return_value=Decimal("0.70"),
+            )
+        )
         with caplog.at_level(
             logging.WARNING,
             logger="lakebench.engines.databricks_sql_warehouse",
