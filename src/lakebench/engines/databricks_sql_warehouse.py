@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Mapping, Optional, Sequence
 
 from .base import BaseEngine
-from .databricks_pricing import (
+from .resources.databricks_pricing import (
     DatabricksPricingError,
     estimate_sql_warehouse_cost,
     normalize_cloud_provider,
@@ -37,7 +37,39 @@ _AWS_SERVERLESS_SQL_REGION_SUFFIXES = {
 
 
 class DatabricksSQLWarehouse(BaseEngine):
-    """Databricks SQL Warehouse engine."""
+    """Execute LakeBench SQL workloads on a Databricks SQL warehouse.
+
+    Attributes
+    ----------
+    server_hostname : str
+        Hostname of the Databricks workspace.
+    warehouse_name : str
+        Name of the SQL warehouse used for benchmark execution.
+    catalog_name : str
+        Databricks catalog containing the benchmark schema.
+    schema_name : str
+        Name of the Databricks schema used for benchmark tables.
+    access_token : str
+        Databricks access token used for API and SQL authentication.
+    schema_uri : str, optional
+        Storage location assigned to the schema.
+    enable_result_caching : bool, optional
+        Whether Databricks SQL result caching remains enabled.
+    cost_per_hour : float, optional
+        Total hourly warehouse cost used for estimated job cost.
+    dbu_rate : float, optional
+        Explicit serverless price per DBU.
+    compute_stats_all_cols : bool, optional
+        Deprecated compatibility option for post-load column statistics.
+
+    Notes
+    -----
+    Cloud provider and region are detected automatically from
+    ``current_metastore()``. Serverless warehouse pricing is resolved from
+    Databricks billing tables when available, with supported public-catalog
+    fallbacks. Classic and pro warehouses require an explicit total hourly
+    cost.
+    """
 
     SQLGLOT_DIALECT = "spark"
     SUPPORTS_MOUNT_PATH = False

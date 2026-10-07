@@ -9,8 +9,23 @@ from .delta_rs import DeltaRs
 
 
 class Daft(BaseEngine):
-    """
-    Daft Engine
+    """Execute LakeBench workloads with the Daft DataFrame engine.
+
+    Attributes
+    ----------
+    schema_or_working_directory_uri : str
+        Base URI used to store Delta tables.
+    cost_per_vcore_hour : float, optional
+        Retail cost per vCore hour used for estimated job cost.
+    cost_per_hour : float, optional
+        Total hourly compute cost, mutually exclusive with
+        ``cost_per_vcore_hour``.
+
+    Notes
+    -----
+    Daft supports ADLS Gen2 paths but not OneLake paths. Decimal columns in
+    native TPC input are read as text and cast because of Daft CSV precision
+    handling.
     """
 
     SQLGLOT_DIALECT = "mysql"

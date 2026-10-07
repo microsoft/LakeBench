@@ -6,6 +6,7 @@ import types
 
 import pytest
 
+import lakebench.engines as engines
 from lakebench.engines import (
     Daft,
     DuckDB,
@@ -18,6 +19,51 @@ from lakebench.engines import (
     SynapseSpark,
 )
 from lakebench.engines.base import BaseEngine, MissingDependenciesError
+
+
+def _documented_attributes(engine_class):
+    docstring = inspect.cleandoc(engine_class.__doc__ or "")
+    lines = docstring.splitlines()
+    if "Attributes" not in lines:
+        return {}
+
+    start = lines.index("Attributes") + 2
+    attributes = {}
+    for index in range(start, len(lines)):
+        line = lines[index]
+        if index + 1 < len(lines) and line and set(lines[index + 1]) == {"-"}:
+            break
+        if line and not line.startswith(" ") and " : " in line:
+            name, type_description = line.split(" : ", 1)
+            attributes[name] = type_description
+    return attributes
+
+
+def test_public_engine_docstrings_only_document_constructor_inputs():
+    engine_classes = {
+        name: value for name, value in vars(engines).items() if inspect.isclass(value) and issubclass(value, BaseEngine)
+    }
+    errors = []
+    for name, engine_class in engine_classes.items():
+        parameters = {
+            parameter_name: parameter
+            for parameter_name, parameter in inspect.signature(engine_class.__init__).parameters.items()
+            if parameter_name != "self"
+            and parameter.kind not in {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD}
+        }
+        attributes = _documented_attributes(engine_class)
+        if set(attributes) != set(parameters):
+            errors.append(
+                f"{name}: documented attributes {sorted(attributes)} do not match "
+                f"constructor inputs {sorted(parameters)}"
+            )
+            continue
+
+        for parameter_name, parameter in parameters.items():
+            if parameter.default is not inspect.Parameter.empty and "optional" not in attributes[parameter_name]:
+                errors.append(f"{name}.{parameter_name}: defaulted input must be marked optional")
+
+    assert errors == []
 
 
 class _MinimalEngine(BaseEngine):

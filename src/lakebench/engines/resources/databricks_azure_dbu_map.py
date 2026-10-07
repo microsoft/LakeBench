@@ -1,4 +1,4 @@
-"""Generated Azure Databricks DBU consumption mappings.
+"""Generated Azure Databricks DBU consumption mapping resource.
 
 Source: https://azure.microsoft.com/en-us/pricing/details/databricks/
 Refresh with: uv run python scripts/refresh_databricks_azure_dbu_map.py

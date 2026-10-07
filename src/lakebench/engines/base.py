@@ -21,15 +21,10 @@ class BaseEngine(ABC):
 
     Attributes
     ----------
-    SQLGLOT_DIALECT : str, optional
-        Specifies the SQL dialect to be used by the engine when SQL transpiling
-        is required. Default is None.
-    SUPPORTS_ONELAKE : bool
-        Indicates if the engine supports OneLake URIs (e.g., abfss://workspace@onelake.dfs.fabric.microsoft.com/...)
-    SUPPORTS_SCHEMA_PREP : bool
-        Indicates if the engine supports schema preparation (creation of empty table with defined schema)
-    SUPPORTS_MOUNT_PATH : bool
-        Indicates if the engine supports mount URIs (e.g., /mnt/...)
+    schema_or_working_directory_uri : str, optional
+        Base URI used to store Delta tables.
+    storage_options : dict, optional
+        Filesystem credentials and options passed to storage clients.
 
     Methods
     -------

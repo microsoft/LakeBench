@@ -11,7 +11,9 @@ import urllib.request
 from pathlib import Path
 
 SOURCE_URL = "https://azure.microsoft.com/en-us/pricing/details/databricks/"
-DEFAULT_OUTPUT = Path(__file__).resolve().parents[1] / "src" / "lakebench" / "engines" / "databricks_azure_dbu_map.py"
+DEFAULT_OUTPUT = (
+    Path(__file__).resolve().parents[1] / "src" / "lakebench" / "engines" / "resources" / "databricks_azure_dbu_map.py"
+)
 
 SPARK_TABLES = {
     "all-purpose-compute-premium": "all-purpose-compute",

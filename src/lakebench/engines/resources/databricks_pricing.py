@@ -204,8 +204,6 @@ def estimate_azure_spark_cost(
     worker_instance_type: str,
     worker_count: int,
     workload_type: str,
-    dbu_rate_override: Optional[float] = None,
-    infrastructure_cost_per_hour_override: Optional[float] = None,
 ) -> DatabricksPriceEstimate:
     driver_sku = (
         driver_instance_type[len("Standard_") :]
@@ -229,21 +227,10 @@ def estimate_azure_spark_cost(
         ) from exc
 
     dbus_per_hour = driver_dbus + (worker_dbus * worker_count)
-    if dbu_rate_override is not None:
-        dbu_rate = Decimal(str(dbu_rate_override))
-        dbu_source = "explicit_dbu_rate"
-    else:
-        dbu_rate = get_azure_dbu_hourly_rate(region, workload_type)
-        dbu_source = "azure_retail_catalog_dbu"
-
-    if infrastructure_cost_per_hour_override is not None:
-        infrastructure_cost = Decimal(str(infrastructure_cost_per_hour_override))
-        infrastructure_source = "explicit_infrastructure_rate"
-    else:
-        driver_rate = get_azure_vm_hourly_rate(region, driver_instance_type)
-        worker_rate = get_azure_vm_hourly_rate(region, worker_instance_type)
-        infrastructure_cost = driver_rate + (worker_rate * worker_count)
-        infrastructure_source = "azure_retail_catalog_vm"
+    dbu_rate = get_azure_dbu_hourly_rate(region, workload_type)
+    driver_rate = get_azure_vm_hourly_rate(region, driver_instance_type)
+    worker_rate = get_azure_vm_hourly_rate(region, worker_instance_type)
+    infrastructure_cost = driver_rate + (worker_rate * worker_count)
 
     dbu_cost = dbus_per_hour * dbu_rate
     return DatabricksPriceEstimate(
@@ -255,7 +242,7 @@ def estimate_azure_spark_cost(
         dbu_rate=dbu_rate,
         dbu_cost_per_hour=dbu_cost,
         infrastructure_cost_per_hour=infrastructure_cost,
-        pricing_source=f"{dbu_source}+{infrastructure_source}",
+        pricing_source="azure_retail_catalog_dbu+azure_retail_catalog_vm",
     )
 
 

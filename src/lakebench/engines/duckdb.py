@@ -10,8 +10,25 @@ from .delta_rs import DeltaRs
 
 
 class DuckDB(BaseEngine):
-    """
-    DuckDB Engine
+    """Execute LakeBench workloads with an embedded DuckDB connection.
+
+    Attributes
+    ----------
+    schema_or_working_directory_uri : str
+        Base URI used to store Delta tables.
+    cost_per_vcore_hour : float, optional
+        Retail cost per vCore hour used for estimated job cost.
+    cost_per_hour : float, optional
+        Total hourly compute cost, mutually exclusive with
+        ``cost_per_vcore_hour``.
+    storage_options : dict, optional
+        Filesystem credentials and options passed to Delta Lake clients.
+
+    Notes
+    -----
+    Cloud storage credentials are passed through ``storage_options`` or
+    discovered from the runtime environment. Delta tables are written through
+    delta-rs and queried through DuckDB.
     """
 
     SQLGLOT_DIALECT = "duckdb"

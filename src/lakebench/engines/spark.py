@@ -13,24 +13,23 @@ class Spark(BaseEngine):
 
     Attributes
     ----------
-    SQLGLOT_DIALECT : str, optional
-        Specifies the SQL dialect to be used by the engine when SQL transpiling
-        is required. Default is None.
-    SUPPORTS_ONELAKE : bool
-        Indicates if the engine supports OneLake URIs (e.g., abfss://workspace@onelake.dfs.fabric.microsoft.com/...)
-    SUPPORTS_SCHEMA_PREP : bool
-        Indicates if the engine supports schema preparation (creation of empty table with defined schema)
-    SUPPORTS_MOUNT_PATH : bool
-        Indicates if the engine supports mount URIs (e.g., /mnt/...)
-
-    Methods
-    -------
-    get_total_cores()
-        Returns the total number of CPU cores available on the system.
-    get_compute_size()
-        Returns a formatted string with the compute size.
-    append_array_to_delta(abfss_path: str, array: list)
-        Appends a list of data to a Delta table at the specified path.
+    schema_name : str
+        Name of the Spark database used for benchmark tables.
+    catalog_name : str, optional
+        Catalog containing the benchmark schema.
+    schema_uri : str, optional
+        Storage location assigned to the Spark schema.
+    spark_measure_telemetry : bool, optional
+        Whether to collect sparkMeasure execution telemetry.
+    cost_per_vcore_hour : float, optional
+        Retail cost per vCore hour used for estimated job cost.
+    cost_per_hour : float, optional
+        Total hourly compute cost, mutually exclusive with
+        ``cost_per_vcore_hour``.
+    compute_stats_all_cols : bool, optional
+        Deprecated compatibility option for post-load column statistics.
+    tblproperties : dict, optional
+        Delta table properties added to table creation statements.
     """
 
     SQLGLOT_DIALECT = "spark"

@@ -5,8 +5,29 @@ from .spark import Spark
 
 
 class SynapseSpark(Spark):
-    """
-    Synapse Spark Engine
+    """Execute LakeBench workloads in an Azure Synapse Spark pool.
+
+    Attributes
+    ----------
+    schema_name : str
+        Name of the Spark database used for benchmark tables.
+    schema_uri : str, optional
+        Storage location assigned to the Spark schema.
+    spark_measure_telemetry : bool, optional
+        Whether to collect sparkMeasure execution telemetry.
+    cost_per_vcore_hour : float, optional
+        Retail cost per vCore hour used for estimated job cost.
+    cost_per_hour : float, optional
+        Total hourly compute cost, mutually exclusive with
+        ``cost_per_vcore_hour``.
+    tblproperties : dict, optional
+        Delta table properties added to table creation statements.
+
+    Notes
+    -----
+    Construction is restricted to detected Synapse runtimes. When no manual
+    cost is supplied, the engine queries Azure retail pricing for the regional
+    Synapse vCore rate and records the resulting hourly estimate.
     """
 
     def __init__(

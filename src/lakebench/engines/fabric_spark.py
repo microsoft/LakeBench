@@ -8,8 +8,33 @@ from .spark import Spark
 
 
 class FabricSpark(Spark):
-    """
-    Fabric Spark Engine
+    """Execute LakeBench workloads in a Microsoft Fabric Spark runtime.
+
+    Attributes
+    ----------
+    lakehouse_name : str
+        Name of the Fabric Lakehouse used as the Spark catalog.
+    lakehouse_schema_name : str
+        Name of the Lakehouse schema used for benchmark tables.
+    spark_measure_telemetry : bool, optional
+        Whether to collect sparkMeasure execution telemetry.
+    cost_per_vcore_hour : float, optional
+        Retail cost per vCore hour used for estimated job cost.
+    cost_per_hour : float, optional
+        Total hourly compute cost, mutually exclusive with
+        ``cost_per_vcore_hour``.
+    collect_stats_on_write : bool, optional
+        Whether Fabric extended Delta statistics are collected during writes.
+    compute_stats_all_cols : bool, optional
+        Deprecated alias for ``collect_stats_on_write``.
+    tblproperties : dict, optional
+        Delta table properties added to table creation statements.
+
+    Notes
+    -----
+    The engine uses the Fabric-attached Lakehouse as its catalog. Fabric write
+    statistics are configured at the Spark session level and replace a
+    separate analyze-after-load step.
     """
 
     _FAST_OPTIMIZE_CONFIG = "spark.microsoft.delta.optimize.fast.enabled"
