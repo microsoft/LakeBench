@@ -24,9 +24,9 @@ src/lakebench/
 │   └── clickbench/              # ClickBench: 43 queries on clickstream data
 │
 ├── datagen/
-│   ├── _tpcgen_rs.py            # Shared bundled tpcgen-cli generation, sizing, and output normalization
-│   ├── tpch.py                  # TPCHDataGenerator (bundled tpcgen-cli)
-│   ├── tpcds.py                 # TPCDSDataGenerator (bundled tpcgen-cli; DuckDB fallback)
+│   ├── _tpcgen.py               # Thin tpcgen-cli wrapper: builds the command, picks part counts, runs it
+│   ├── tpch.py                  # TPCHDataGenerator (tpcgen-cli)
+│   ├── tpcds.py                 # TPCDSDataGenerator (tpcgen-cli)
 │   └── clickbench.py            # Downloads dataset from ClickHouse host
 │
 ├── engines/
@@ -143,9 +143,8 @@ Install only what you need:
 | `polars` | `polars`, `deltalake`, `pyarrow` |
 | `fabric_data_warehouse` | `sqlalchemy`, `pyodbc`, `pandas`, `requests` (needs ODBC Driver 18 on the host) |
 | `daft` | `daft`, `deltalake`, `pyarrow` |
-| `tpcds_datagen` | Compatibility extra; generator is bundled in supported platform wheels |
-| `tpcds_duckdb_datagen` | Legacy DuckDB TPC-DS generator |
-| `tpch_datagen` | Compatibility extra; generator is bundled in supported platform wheels |
+| `tpcds_datagen` | `tpcgen-cli==4.0.0` |
+| `tpch_datagen` | `tpcgen-cli==4.0.0` |
 | `sparkmeasure` | `sparkmeasure` |
 | `sail` | `pysail`, `pyspark[connect]`, `deltalake`, `pyarrow` |
 
@@ -195,10 +194,10 @@ Set `sql_text` *before* executing, so the statement is still recorded when the e
 
 ## Native TPC Generator Format
 
-TPC-H and TPC-DS support the generators' pipe-delimited text output alongside Parquet: `TPCxDataGenerator(output_format="native")` and `TPCx(input_format="native")`. TPC-DS native format support is currently in preview. TPC-DS uses subcommand/extension `dat`, TPC-H uses `tbl`; the currently bundled `tpcgen-cli tpcds dat` rejects `--num-threads` and runs single-threaded regardless of available cores. Part count controls output splitting, not parallel execution. Neither native subcommand accepts `--compression` or `--row-group-bytes`.
+TPC-H and TPC-DS support the generators' pipe-delimited text output alongside Parquet: `TPCxDataGenerator(output_format="native")` and `TPCx(input_format="native")`. TPC-DS native format support is currently in preview. TPC-DS uses subcommand/extension `dat`, TPC-H uses `tbl`; both accept `--num-threads`. Neither native subcommand accepts `--compression` or `--row-group-bytes`.
 
-The format has no header and no types, so reader schemas come from the benchmark's resolved DDL via `utils/schema_utils.py`. Native files are named the way the official tools name them: `<table>.tbl`/`<table>.dat` for a single part, and `<table>.tbl.<step>` (dbgen) or `<table>_<child>_<parallel>.dat` (dsdgen) for multiple parts. Because dbgen's parallel names do not end in the extension, engines glob a benchmark-supplied `NATIVE_FILE_GLOB` pattern (`*.tbl*`, `*.dat`) rather than an extension.
+The format has no header and no types, so reader schemas come from the benchmark's resolved DDL via `utils/schema_utils.py`. Generated native files keep tpcgen-cli's names, `<table>/<table>.<part>.tbl`/`.dat`. Engines glob a benchmark-supplied `NATIVE_FILE_GLOB` (`*.tbl*`, `*.dat`) so official dbgen parallel names (`<table>.tbl.<step>`) also load.
 
 Every generated line ends with a trailing delimiter, so readers declare one extra trailing column (`TRAILING_DELIMITER_COLUMN`) and drop it; quoting must be disabled and empty fields must read as NULL. Engines implement `load_delimited_to_delta`; `Sail` subclasses `BaseEngine` rather than `Spark`, so it needs its own copy. Daft's CSV reader mislabels decimal precision, so decimals are read as text and cast.
 
-Native part counts use `NATIVE_SIZE_FACTOR_DICT` (native bytes ÷ uncompressed Parquet bytes, measured per table at SF1). Do not derive these from `SF1000_SIZE_GB_DICT` at a different scale factor: that dict assumes linear scaling, which is false for TPC-DS's fixed-size dimensions.
+Generators pass options straight to tpcgen-cli. LakeBench only chooses `--parts` per table: estimated size (`SF10_SIZE_MIB` for the output format × row growth from SF10) ÷ a file size that steps from 128 MiB to 1 GiB with table size (`FILE_SIZE_STEPS_MIB`). Growth is linear except for the TPC-DS tables in `SUBLINEAR_ROWS_M`, which follow the spec's row counts. Regenerate `SF10_SIZE_MIB` with `scripts/measure_tpcgen_sizes.py` when tpcgen-cli changes. `ROW_GROUP_MIB` is the per-benchmark default `--row-group-bytes`. tpcgen-cli writes no file for empty parts (TPC-DS tables under 1M source rows, TPC-H nation/region), so a table may have fewer files than parts.
