@@ -48,7 +48,7 @@ Serverless is detected from the `IS_SERVERLESS` environment variable. Pass `serv
 
 - `catalog_name` must be a Unity Catalog catalog.
 - Photon and Unity Catalog are always reported as enabled.
-- `cost_per_vcore_hour` isn't supported. See [Serverless pricing](#serverless).
+- `cost_per_hour` and `cost_per_vcore_hour` aren't supported. Serverless isn't billed at an hourly rate, so item-level cost isn't estimated. See [Serverless pricing](#serverless).
 - `VACUUM` with `retention_check=False` can't disable the retention check, because serverless restricts Spark configs. A warning is logged.
 
 ```python
@@ -59,7 +59,7 @@ engine = DatabricksSpark(catalog_name="main", schema_name="lakebench")
 
 - `catalog_name`: defaults to `hive_metastore`; use a Unity Catalog name when applicable.
 - `schema_name` and `schema_uri`: benchmark table namespace and Delta root.
-- `cost_per_hour` or `cost_per_vcore_hour`: mutually exclusive manual rates.
+- `cost_per_hour` or `cost_per_vcore_hour`: mutually exclusive manual rates (classic compute only).
 - `spark_measure_telemetry` and `tblproperties`: shared Spark options.
 - `serverless`: override serverless detection.
 - `job_run_id` and `notebook_id`: override the serverless billing attribution IDs that are otherwise read from the notebook context.
@@ -88,22 +88,52 @@ Supply an all-inclusive `cost_per_hour` or `cost_per_vcore_hour`. The rate shoul
 
 ### Serverless
 
-Serverless is billed by consumed DBUs, not an hourly rate, so `estimated_retail_job_cost` stays unset during the run (`pricing_source=billing_lookup_pending`). Pass `cost_per_hour` to use a manual rate instead.
+Serverless uses `run_billed` cost attribution. [Cost reporting](../../cost/README.md) explains the model, the post-run workflow and the shared `BilledCost` schema. Serverless is billed by consumed DBUs, not an hourly rate, so LakeBench doesn't estimate per-item cost on serverless. `estimated_retail_job_cost` stays unset (`pricing_source=billing_lookup_pending`), and `cost_per_hour` / `cost_per_vcore_hour` are rejected.
 
-To get the actual cost after the run, look up usage in `system.billing.usage`, joined to `system.billing.list_prices`:
+#### How the cost is looked up
+
+- **Source:** `system.billing.usage`, priced with `system.billing.list_prices`. Each usage record is priced at the effective list price of its own SKU in effect at the time.
+- **Usage included:** only DBU usage (`usage_unit = 'DBU'`, `product_features.is_serverless = true`). Other usage types, such as networking, are excluded.
+- **Attribution:**
+  - Jobs: `usage_metadata.job_run_id`. This is exact if the job run contains only this LakeBench run, so use one single-task job run per benchmark run.
+  - Interactive notebooks: `usage_metadata.notebook_id`. This includes all serverless usage from that notebook during the window. Billing has no session ID, so for accurate numbers run benchmarks as jobs.
+  - The IDs are read from the notebook context and stored in `engine_properties` as `job_run_id`, `job_id` and `notebook_id`. Override them with the `job_run_id` / `notebook_id` arguments.
+- **Performance mode:** the cost reflects whichever serverless mode was billed, because each record carries its own SKU and quantity. `product_features.performance_target` is recorded as `performance_mode` (`STANDARD`, `PERFORMANCE_OPTIMIZED`, or `MIXED`, with a warning).
+- **Lag:** billing data can take a few hours to arrive. `may_be_incomplete` is `True` when the window ended less than 3 hours ago.
+- **Permissions:** `SELECT` on `system.billing.usage` and `system.billing.list_prices`.
+- **Scope:** the total covers everything billed to the job run, including startup and result writes, not just timed phases.
+- **`details` keys:** `sku_names`, `job_ids`, `performance_targets`, `currency_codes`.
+
+#### Same session
 
 ```python
 benchmark.run()
-
-billed = engine.get_billed_cost()  # window defaults to engine creation -> now
-print(billed.dbus, billed.list_cost_usd, billed.may_be_incomplete)
-
-# Optional: spread the billed total across result rows by duration (an approximation).
-rows = engine.backfill_results_cost(benchmark.results, billed)
+billed = engine.get_billed_cost(run_id=benchmark.header_detail_dict["run_id"])
 ```
 
-- Usage is attributed by job run ID on jobs and by notebook ID in interactive notebooks. Notebook attribution includes all serverless usage from that notebook during the window, so run LakeBench by itself for accurate numbers.
-- Billing data can take a few hours to appear. `may_be_incomplete` is `True` when the window ended less than 3 hours ago. Re-run the lookup later with explicit `start_time` / `end_time` (e.g. from `run_datetime` in the results).
-- Requires `SELECT` on `system.billing.usage` and `system.billing.list_prices`. Costs are list prices and don't include negotiated discounts.
+#### Later session (scheduled cost job)
+
+```python
+from lakebench.billing import BILLED_COST_SCHEMA, run_window_from_results
+from lakebench.engines.resources.databricks_pricing import query_billed_cost
+
+rows = [r.asDict() for r in spark.read.format("delta").load(result_table_uri).where(f"run_id = '{run_id}'").collect()]
+props = rows[0]["engine_properties"]
+start, end = run_window_from_results(rows)
+billed = query_billed_cost(
+    spark,
+    start_time=start,
+    end_time=end,
+    job_run_id=props.get("job_run_id"),
+    notebook_id=props.get("notebook_id"),
+    run_id=run_id,
+    cloud_provider=props.get("cloud_provider"),
+    compute_region=props.get("compute_region"),
+    compute_type=props.get("workload_type"),
+)
+engine._append_results_to_delta(cost_table_uri, [billed.to_row()], BILLED_COST_SCHEMA)
+```
+
+Run the lookup on Databricks. `start_datetime` values are naive local timestamps, and serverless runs in UTC.
 
 Native TPC `.tbl` and `.dat` input is supported through the shared Spark loader.

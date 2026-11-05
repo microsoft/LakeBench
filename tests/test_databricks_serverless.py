@@ -8,13 +8,15 @@ from decimal import Decimal
 
 import pytest
 
-from lakebench.engines.databricks_spark import DatabricksSpark
-from lakebench.engines.resources.databricks_pricing import (
+from lakebench.billing import (
+    BILLED_COST_SCHEMA,
     BilledCost,
-    DatabricksPricingError,
+    CostAttribution,
     backfill_results_cost,
-    query_billed_cost,
+    run_window_from_results,
 )
+from lakebench.engines.databricks_spark import DatabricksSpark
+from lakebench.engines.resources.databricks_pricing import DatabricksPricingError, query_billed_cost
 from lakebench.engines.spark import Spark
 from lakebench.utils.timer import _to_spark_connect_tag, timer
 
@@ -123,11 +125,12 @@ def test_serverless_requires_unity_catalog(fake_pyspark, monkeypatch):
         DatabricksSpark(schema_name="tpch")
 
 
-def test_serverless_rejects_cost_per_vcore_hour(fake_pyspark, monkeypatch):
+@pytest.mark.parametrize("cost_kwargs", [{"cost_per_vcore_hour": 0.1}, {"cost_per_hour": 36.0}])
+def test_serverless_rejects_hourly_cost_inputs(fake_pyspark, monkeypatch, cost_kwargs):
     monkeypatch.setenv("IS_SERVERLESS", "TRUE")
     fake_pyspark(_FakeConnectSession())
-    with pytest.raises(ValueError, match="cost_per_vcore_hour"):
-        DatabricksSpark(schema_name="tpch", catalog_name="main", cost_per_vcore_hour=0.1)
+    with pytest.raises(ValueError, match="billed by consumed DBUs"):
+        DatabricksSpark(schema_name="tpch", catalog_name="main", **cost_kwargs)
 
 
 def test_serverless_rejects_spark_measure(fake_pyspark, monkeypatch):
@@ -162,10 +165,11 @@ def test_serverless_interactive_workload_type(fake_pyspark, monkeypatch):
     assert engine.notebook_id == "123"
 
 
-def test_serverless_explicit_cost_per_hour(fake_pyspark, monkeypatch):
-    engine, _ = _serverless_engine(fake_pyspark, monkeypatch, cost_per_hour=36.0)
-    assert engine.extended_engine_metadata["pricing_source"] == "explicit_cost_per_hour"
-    assert engine.get_job_cost(3_600_000) == Decimal("36.0")
+def test_serverless_never_estimates_item_cost(fake_pyspark, monkeypatch):
+    engine, _ = _serverless_engine(fake_pyspark, monkeypatch)
+    assert engine.cost_per_hour is None
+    assert engine.get_job_cost(3_600_000) is None
+    assert "cost_per_hour" not in engine.extended_engine_metadata
 
 
 def test_serverless_flag_overrides_environment(fake_pyspark, monkeypatch):
@@ -312,7 +316,41 @@ def test_spark_connect_tag_sanitizes_commas():
 # ---------------------------------------------------------------------------
 # Billing lookup
 # ---------------------------------------------------------------------------
-_BILLING_ROW = {"dbus": Decimal("12.5"), "list_cost_usd": Decimal("8.75"), "row_count": 3, "unpriced_row_count": 0}
+def _billed_cost(**overrides):
+    values = dict(
+        platform="databricks",
+        billing_unit="DBU",
+        billed_units=Decimal("10"),
+        list_cost=Decimal("9"),
+        currency="USD",
+        attribution_type="job_run_id",
+        attribution_id="1",
+        window_start=datetime.now(),
+        window_end=datetime.now(),
+        usage_record_count=1,
+        may_be_incomplete=False,
+        pricing_source="databricks_system_billing_usage",
+        performance_mode="STANDARD",
+    )
+    values.update(overrides)
+    return BilledCost(**values)
+
+
+# ---------------------------------------------------------------------------
+# Billing lookup (query)
+# ---------------------------------------------------------------------------
+_BILLING_ROW = {
+    "billed_units": Decimal("12.5"),
+    "list_cost": Decimal("8.75"),
+    "usage_record_count": 3,
+    "unpriced_record_count": 0,
+    "latest_usage_end": datetime(2026, 1, 1, 12, 0),
+    "performance_targets": ["PERFORMANCE_OPTIMIZED"],
+    "sku_names": ["PREMIUM_JOBS_SERVERLESS_COMPUTE_US_EAST"],
+    "currency_codes": ["USD"],
+    "job_ids": ["7"],
+    "clouds": ["AZURE"],
+}
 
 
 def test_billed_cost_filters_on_job_run_id():
@@ -326,11 +364,21 @@ def test_billed_cost_filters_on_job_run_id():
     assert "u.usage_metadata.job_run_id = :attribution_id" in query
     assert "is_serverless" in query
     assert args["attribution_id"] == "42"
-    assert billed.dbus == Decimal("12.5")
-    assert billed.list_cost_usd == Decimal("8.75")
+    assert billed.platform == "databricks"
+    assert billed.billing_unit == "DBU"
+    assert billed.billed_units == Decimal("12.5")
+    assert billed.list_cost == Decimal("8.75")
+    assert billed.currency == "USD"
+    assert billed.cloud_provider == "azure"
+    assert billed.performance_mode == "PERFORMANCE_OPTIMIZED"
     assert billed.attribution == "job_run_id=42"
     assert billed.may_be_incomplete is False
-    assert billed.metadata()["pricing_source"] == "databricks_system_billing_usage"
+    assert billed.latest_usage_end.tzinfo is not None
+    assert billed.details["sku_names"] == "PREMIUM_JOBS_SERVERLESS_COMPUTE_US_EAST"
+    assert "performance_target" in query
+    metadata = billed.metadata()
+    assert metadata["pricing_source"] == "databricks_system_billing_usage"
+    assert metadata["billed_performance_mode"] == "PERFORMANCE_OPTIMIZED"
 
 
 def test_billed_cost_falls_back_to_notebook_and_flags_recent_window():
@@ -358,38 +406,128 @@ def test_billed_cost_wraps_permission_errors():
         query_billed_cost(_DeniedSession(), datetime.now() - timedelta(hours=1), job_run_id="1")
 
 
-def test_engine_billed_cost_uses_engine_attribution(fake_pyspark, monkeypatch):
+def test_engine_billed_cost_uses_engine_attribution_and_context(fake_pyspark, monkeypatch):
     engine, session = _serverless_engine(fake_pyspark, monkeypatch, context_tags={"jobRunId": "42"})
     session.sql_rows["system.billing.usage"] = [_BILLING_ROW]
 
-    billed = engine.get_billed_cost()
+    billed = engine.get_billed_cost(run_id="run-1")
 
     assert billed.attribution == "job_run_id=42"
+    assert billed.run_id == "run-1"
+    assert billed.compute_type == "serverless-jobs-compute"
+    assert billed.compute_region == "eastus2"
+
+
+@pytest.mark.parametrize(
+    ("targets", "expected"),
+    [
+        ([], None),
+        ([None], None),
+        (["STANDARD"], "STANDARD"),
+        (["STANDARD", "PERFORMANCE_OPTIMIZED"], "MIXED"),
+    ],
+)
+def test_billed_cost_performance_mode(targets, expected, caplog):
+    session = _FakeConnectSession(sql_rows={"system.billing.usage": [{**_BILLING_ROW, "performance_targets": targets}]})
+
+    billed = query_billed_cost(session, datetime.now() - timedelta(hours=6), job_run_id="1")
+
+    assert billed.performance_mode == expected
+    assert ("multiple serverless performance modes" in caplog.text) == (expected == "MIXED")
+
+
+def test_billed_cost_row_matches_generic_schema():
+    row = _billed_cost(billed_units=Decimal("1.123456789012345678")).to_row(run_id="run-9")
+
+    assert list(row) == [name for name, _ in BILLED_COST_SCHEMA]
+    assert row["run_id"] == "run-9"
+    assert row["performance_mode"] == "STANDARD"
+    assert row["billed_units"] == Decimal("1.1234567890")
+    assert isinstance(row["details"], dict)
+
+
+def test_generic_schema_types_are_writable_by_spark_engines():
+    supported = {
+        "STRING",
+        "TIMESTAMP",
+        "TINYINT",
+        "SMALLINT",
+        "INT",
+        "BIGINT",
+        "FLOAT",
+        "DOUBLE",
+        "DECIMAL(18,10)",
+        "BOOLEAN",
+        "MAP<STRING, STRING>",
+    }
+    assert {data_type for _, data_type in BILLED_COST_SCHEMA} <= supported
 
 
 def test_engine_billed_cost_is_serverless_only(fake_pyspark, monkeypatch):
     engine = _shared_mode_engine(fake_pyspark, monkeypatch)
-    with pytest.raises(DatabricksPricingError, match="serverless"):
+    assert engine.supports_billed_cost_lookup is False
+    with pytest.raises(NotImplementedError, match="serverless"):
         engine.get_billed_cost()
 
 
+def test_cost_attribution_modes(fake_pyspark, monkeypatch):
+    serverless, _ = _serverless_engine(fake_pyspark, monkeypatch)
+    assert serverless.cost_attribution == CostAttribution.RUN_BILLED
+    assert serverless.supports_billed_cost_lookup is True
+    assert serverless.extended_engine_metadata["billing_lookup"] == "databricks_system_billing_usage"
+
+    classic = _shared_mode_engine(fake_pyspark, monkeypatch, cost_per_hour=10.0)
+    assert classic.cost_attribution == CostAttribution.ITEM_ESTIMATE
+
+    unpriced = _shared_mode_engine(fake_pyspark, monkeypatch)
+    assert unpriced.cost_attribution == CostAttribution.NOT_CONFIGURED
+
+
+def test_benchmark_records_cost_attribution(fake_pyspark, monkeypatch):
+    from lakebench.benchmarks.base import BaseBenchmark
+
+    engine, _ = _serverless_engine(fake_pyspark, monkeypatch)
+
+    class _Bench(BaseBenchmark):
+        def run(self):
+            pass
+
+    _Bench(engine, scenario_name="s", input_parquet_folder_uri="/Volumes/x", result_table_uri=None)
+
+    assert engine.extended_engine_metadata["cost_attribution"] == "run_billed"
+
+
+def test_base_engine_has_no_billed_cost_lookup_by_default():
+    from lakebench.engines.base import BaseEngine
+
+    engine = BaseEngine.__new__(BaseEngine)
+    engine.cost_per_hour = None
+    engine.cost_per_vcore_hour = None
+    assert engine.supports_billed_cost_lookup is False
+    assert engine.cost_attribution == CostAttribution.NOT_CONFIGURED
+    with pytest.raises(NotImplementedError, match="docs/cost"):
+        engine.get_billed_cost()
+
+
+def test_run_window_from_results():
+    start = datetime(2026, 1, 1, 10, 0, 0)
+    rows = [
+        {"start_datetime": start, "duration_ms": 1000},
+        {"start_datetime": start + timedelta(seconds=5), "duration_ms": 2500},
+    ]
+    assert run_window_from_results(rows) == (start, start + timedelta(seconds=7.5))
+    with pytest.raises(ValueError):
+        run_window_from_results([])
+
+
 def test_backfill_results_cost_splits_by_duration():
-    billed = BilledCost(
-        dbus=Decimal("10"),
-        list_cost_usd=Decimal("9"),
-        row_count=1,
-        unpriced_row_count=0,
-        attribution="job_run_id=1",
-        start_time=datetime.now(),
-        end_time=datetime.now(),
-        may_be_incomplete=False,
-    )
+    billed = _billed_cost()
     results = [{"duration_ms": 1000}, {"duration_ms": 2000}]
 
     updated = backfill_results_cost(results, billed)
 
     assert [row["estimated_retail_job_cost"] for row in updated] == [Decimal("3"), Decimal("6")]
-    assert sum(row["estimated_retail_job_cost"] for row in updated) == billed.list_cost_usd
+    assert sum(row["estimated_retail_job_cost"] for row in updated) == billed.list_cost
     assert "estimated_retail_job_cost" not in results[0]
 
 

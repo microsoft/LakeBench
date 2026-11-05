@@ -4,8 +4,9 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Callable, Literal, Optional, Sequence
+from typing import Any, Callable, Literal, Optional
 
+from ...billing import MIXED_PERFORMANCE_MODE, BilledCost, summarize_performance_modes
 from .databricks_azure_dbu_map import (
     AZURE_SPARK_DBU_MAP,
     SERVERLESS_SQL_DBUS_PER_HOUR,
@@ -290,10 +291,16 @@ BILLING_LAG = timedelta(hours=3)
 
 _BILLED_COST_QUERY = """
 SELECT
-    COALESCE(SUM(u.usage_quantity), 0) AS dbus,
-    COALESCE(SUM(u.usage_quantity * p.pricing.effective_list.default), 0) AS list_cost_usd,
-    COUNT(*) AS row_count,
-    COUNT_IF(p.sku_name IS NULL) AS unpriced_row_count
+    COALESCE(SUM(u.usage_quantity), 0) AS billed_units,
+    COALESCE(SUM(u.usage_quantity * p.pricing.effective_list.default), 0) AS list_cost,
+    COUNT(*) AS usage_record_count,
+    COUNT_IF(u.usage_quantity <> 0 AND p.sku_name IS NULL) AS unpriced_record_count,
+    MAX(u.usage_end_time) AS latest_usage_end,
+    COLLECT_SET(u.product_features.performance_target) AS performance_targets,
+    COLLECT_SET(u.sku_name) AS sku_names,
+    COLLECT_SET(p.currency_code) AS currency_codes,
+    COLLECT_SET(u.usage_metadata.job_id) AS job_ids,
+    COLLECT_SET(u.cloud) AS clouds
 FROM system.billing.usage AS u
 LEFT JOIN system.billing.list_prices AS p
     ON u.sku_name = p.sku_name
@@ -310,30 +317,6 @@ WHERE u.usage_unit = 'DBU'
 """
 
 
-@dataclass(frozen=True)
-class BilledCost:
-    """Serverless usage billed to a benchmark run, from Databricks system tables."""
-
-    dbus: Decimal
-    list_cost_usd: Decimal
-    row_count: int
-    unpriced_row_count: int
-    attribution: str
-    start_time: datetime
-    end_time: datetime
-    may_be_incomplete: bool
-
-    def metadata(self) -> dict[str, str]:
-        return {
-            "billed_dbus": str(self.dbus.quantize(Decimal("0.0000"))),
-            "billed_list_cost_usd": str(self.list_cost_usd.quantize(Decimal("0.0000"))),
-            "billed_usage_rows": str(self.row_count),
-            "billed_attribution": self.attribution,
-            "billed_may_be_incomplete": str(self.may_be_incomplete),
-            "pricing_source": "databricks_system_billing_usage",
-        }
-
-
 def _to_utc(value: datetime) -> datetime:
     # Naive datetimes are treated as local time, matching ``datetime.now()``
     # used for ``run_datetime`` / ``start_datetime`` in benchmark results.
@@ -346,6 +329,10 @@ def query_billed_cost(
     end_time: Optional[datetime] = None,
     job_run_id: Optional[str] = None,
     notebook_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+    cloud_provider: Optional[str] = None,
+    compute_region: Optional[str] = None,
+    compute_type: Optional[str] = None,
 ) -> BilledCost:
     """Sum serverless DBUs and list cost billed to a job run or notebook.
 
@@ -356,17 +343,27 @@ def query_billed_cost(
         ``system.billing.list_prices``.
     start_time, end_time : datetime
         Window to sum usage over. ``end_time`` defaults to now. Usage records
-        are hourly, so any record overlapping the window is included.
+        cover time buckets, so any record overlapping the window is included.
     job_run_id, notebook_id : str, optional
         Attribution identifier; ``job_run_id`` takes precedence. Interactive
         notebook attribution includes all serverless usage from that notebook
         in the window, not only LakeBench work.
+    run_id, cloud_provider, compute_region, compute_type : str, optional
+        Context copied onto the returned :class:`BilledCost`.
+
+    Returns
+    -------
+    BilledCost
+        Platform-neutral record. ``performance_mode`` is the serverless
+        ``performance_target`` billed (``STANDARD``, ``PERFORMANCE_OPTIMIZED``,
+        or ``MIXED``). Only DBU usage is included; other usage types such as
+        networking are excluded.
     """
     if job_run_id:
-        attribution, attribution_filter = f"job_run_id={job_run_id}", "u.usage_metadata.job_run_id = :attribution_id"
+        attribution_type, attribution_filter = "job_run_id", "u.usage_metadata.job_run_id = :attribution_id"
         attribution_id = str(job_run_id)
     elif notebook_id:
-        attribution, attribution_filter = f"notebook_id={notebook_id}", "u.usage_metadata.notebook_id = :attribution_id"
+        attribution_type, attribution_filter = "notebook_id", "u.usage_metadata.notebook_id = :attribution_id"
         attribution_id = str(notebook_id)
     else:
         raise DatabricksPricingError(
@@ -393,38 +390,74 @@ def query_billed_cost(
             f"principal can SELECT from system.billing.usage and system.billing.list_prices: {exc}"
         ) from exc
 
-    unpriced = int(row["unpriced_row_count"] or 0)
+    unpriced = int(row["unpriced_record_count"] or 0)
     if unpriced:
         logger.warning(
-            "%s billed usage row(s) had no matching list price and are excluded from list_cost_usd.",
+            "%s billed usage record(s) had no matching list price and are excluded from list_cost.",
             unpriced,
         )
-    return BilledCost(
-        dbus=Decimal(str(row["dbus"] or 0)),
-        list_cost_usd=Decimal(str(row["list_cost_usd"] or 0)),
-        row_count=int(row["row_count"] or 0),
-        unpriced_row_count=unpriced,
-        attribution=attribution,
-        start_time=start_utc,
-        end_time=end_utc,
+
+    performance_targets = sorted(str(mode) for mode in (row["performance_targets"] or []) if mode)
+    performance_mode = summarize_performance_modes(performance_targets)
+    if performance_mode == MIXED_PERFORMANCE_MODE:
+        logger.warning(
+            "Billed usage for %s=%s spans multiple serverless performance modes: %s.",
+            attribution_type,
+            attribution_id,
+            ", ".join(performance_targets),
+        )
+
+    currencies = sorted(str(code) for code in (row["currency_codes"] or []) if code)
+    if len(currencies) > 1:
+        logger.warning("Billed usage is priced in multiple currencies: %s.", ", ".join(currencies))
+    clouds = sorted(str(cloud) for cloud in (row["clouds"] or []) if cloud)
+
+    details = {}
+    for key, values in (
+        ("sku_names", row["sku_names"]),
+        ("job_ids", row["job_ids"]),
+        ("performance_targets", performance_targets),
+        ("currency_codes", currencies),
+    ):
+        joined = ",".join(sorted(str(value) for value in (values or []) if value))
+        if joined:
+            details[key] = joined
+
+    latest_usage_end = row["latest_usage_end"]
+    if isinstance(latest_usage_end, datetime) and latest_usage_end.tzinfo is None:
+        latest_usage_end = latest_usage_end.replace(tzinfo=timezone.utc)
+
+    billed = BilledCost(
+        platform="databricks",
+        billing_unit="DBU",
+        billed_units=Decimal(str(row["billed_units"] or 0)),
+        list_cost=Decimal(str(row["list_cost"] or 0)),
+        currency=currencies[0] if len(currencies) == 1 else ("MIXED" if currencies else "USD"),
+        attribution_type=attribution_type,
+        attribution_id=attribution_id,
+        window_start=start_utc,
+        window_end=end_utc,
+        latest_usage_end=latest_usage_end,
+        usage_record_count=int(row["usage_record_count"] or 0),
+        unpriced_record_count=unpriced,
         may_be_incomplete=datetime.now(timezone.utc) - end_utc < BILLING_LAG,
+        pricing_source="databricks_system_billing_usage",
+        performance_mode=performance_mode,
+        cloud_provider=cloud_provider or (normalize_cloud_provider(clouds[0]) if len(clouds) == 1 else None),
+        compute_region=compute_region,
+        compute_type=compute_type,
+        run_id=run_id,
+        details=details,
     )
-
-
-def backfill_results_cost(results: Sequence[dict], billed: BilledCost) -> list[dict]:
-    """Apportion a billed total across result rows by ``duration_ms``.
-
-    Serverless usage is not attributable per query, so this is an
-    approximation: each row's ``estimated_retail_job_cost`` is the billed list
-    cost weighted by its share of total duration. Returns new row dicts.
-    """
-    total_ms = sum(int(row.get("duration_ms") or 0) for row in results)
-    if total_ms <= 0:
-        return [dict(row) for row in results]
-    updated = []
-    for row in results:
-        share = Decimal(int(row.get("duration_ms") or 0)) / Decimal(total_ms)
-        new_row = dict(row)
-        new_row["estimated_retail_job_cost"] = (billed.list_cost_usd * share).quantize(Decimal("0.0000000001"))
-        updated.append(new_row)
-    return updated
+    logger.info(
+        "Billed cost for %s: %s %s (%s %s, performance_mode=%s, records=%s%s).",
+        billed.attribution,
+        billed.list_cost.quantize(Decimal("0.0001")),
+        billed.currency,
+        billed.billed_units.quantize(Decimal("0.0001")),
+        billed.billing_unit,
+        billed.performance_mode or "unknown",
+        billed.usage_record_count,
+        ", may be incomplete" if billed.may_be_incomplete else "",
+    )
+    return billed

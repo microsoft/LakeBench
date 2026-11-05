@@ -4,13 +4,12 @@ import json
 import logging
 import os
 from datetime import datetime
-from typing import Optional, Sequence
+from typing import Optional
 
+from ..billing import BilledCost, CostAttribution
 from .resources.databricks_azure_dbu_map import AZURE_SPARK_DBU_MAP
 from .resources.databricks_pricing import (
-    BilledCost,
     DatabricksPricingError,
-    backfill_results_cost,
     estimate_azure_spark_cost,
     infer_cloud_provider,
     log_if_manual_compute_cost_missing,
@@ -51,7 +50,7 @@ class DatabricksSpark(Spark):
         on serverless compute.
     cost_per_hour : float, optional
         Total hourly compute cost, mutually exclusive with
-        ``cost_per_vcore_hour``.
+        ``cost_per_vcore_hour``. Not supported on serverless compute.
     compute_stats_all_cols : bool, optional
         Deprecated compatibility option for post-load column statistics.
     tblproperties : dict, optional
@@ -77,8 +76,9 @@ class DatabricksSpark(Spark):
 
     Azure fixed-size clusters can resolve automatic DBU and infrastructure
     pricing from public Azure APIs. Serverless compute is billed by consumed
-    DBUs, so its cost is resolved after the run with :meth:`get_billed_cost`
-    unless ``cost_per_hour`` is passed.
+    DBUs, not a fixed hourly rate, so per-item ``estimated_retail_job_cost``
+    is never derived from an hourly rate there. Its actual cost is resolved
+    per run after the fact with :meth:`get_billed_cost`.
     """
 
     SUPPORTS_MOUNT_PATH = True
@@ -113,10 +113,11 @@ class DatabricksSpark(Spark):
                     "Databricks serverless compute requires a Unity Catalog catalog. "
                     "Pass catalog_name='<your_catalog>'."
                 )
-            if cost_per_vcore_hour is not None:
+            if cost_per_vcore_hour is not None or cost_per_hour is not None:
                 raise ValueError(
-                    "cost_per_vcore_hour is not supported on Databricks serverless compute. "
-                    "Pass cost_per_hour, or omit it and call get_billed_cost() after the run."
+                    "cost_per_vcore_hour and cost_per_hour are not supported on Databricks serverless "
+                    "compute, which is billed by consumed DBUs rather than an hourly rate. Omit them and "
+                    "call get_billed_cost() after the run for the actual billed cost."
                 )
 
         super().__init__(
@@ -260,15 +261,15 @@ class DatabricksSpark(Spark):
         cost_per_hour: Optional[float],
     ) -> None:
         if self.serverless:
-            self._configure_cost_inputs(cost_per_hour=cost_per_hour)
-            if cost_per_hour is None:
-                logger.info(
-                    "Databricks serverless is billed by consumed DBUs. Call get_billed_cost() after the run "
-                    "(usage can take a few hours to appear) or pass cost_per_hour."
-                )
-                self.extended_engine_metadata["pricing_source"] = "billing_lookup_pending"
-            else:
-                self.extended_engine_metadata["cost_per_hour"] = str(self.cost_per_hour)
+            # No hourly rate: estimated_retail_job_cost stays unset for every item.
+            self.cost_per_hour = None
+            self.cost_per_vcore_hour = None
+            logger.info(
+                "Databricks serverless is billed by consumed DBUs, so item-level cost is not estimated. "
+                "Call get_billed_cost() after the run (usage can take a few hours to appear)."
+            )
+            self.extended_engine_metadata["pricing_source"] = "billing_lookup_pending"
+            self.extended_engine_metadata["billing_lookup"] = "databricks_system_billing_usage"
             return
 
         log_if_manual_compute_cost_missing(
@@ -343,6 +344,7 @@ class DatabricksSpark(Spark):
         self,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
+        run_id: Optional[str] = None,
     ) -> BilledCost:
         """Look up serverless usage billed to this run in ``system.billing.usage``.
 
@@ -352,35 +354,52 @@ class DatabricksSpark(Spark):
             Start of the usage window. Defaults to when this engine was created.
         end_time : datetime, optional
             End of the usage window. Defaults to now.
+        run_id : str, optional
+            LakeBench ``run_id`` to stamp on the result (e.g. ``benchmark.header_detail_dict["run_id"]``).
 
         Returns
         -------
         BilledCost
-            Total DBUs and list cost. ``may_be_incomplete`` is True when the
-            window ended within the last few hours, because billing data lags.
+            Platform-neutral cost record (see ``lakebench.billing``),
+            including DBUs, list cost, and the billed ``performance_mode``.
+            ``may_be_incomplete`` is True when the window ended within the last
+            few hours, because billing data lags. Write it with
+            ``lakebench.billing.BILLED_COST_SCHEMA`` / :meth:`BilledCost.to_row`.
 
         Notes
         -----
         Usage is attributed to the job run (jobs) or the notebook
         (interactive). Interactive attribution includes all serverless usage
         from the notebook in the window, so run LakeBench alone in the notebook
-        for accurate figures. Use :func:`backfill_results_cost` to spread the
-        total across benchmark result rows.
+        for accurate figures. See ``docs/cost/README.md`` for the generic
+        cost schema and post-run lookup workflow.
         """
         if not self.serverless:
-            raise DatabricksPricingError("get_billed_cost() is only supported on Databricks serverless compute.")
+            raise NotImplementedError(
+                "get_billed_cost() is only supported on Databricks serverless compute. Classic compute "
+                "reports item-level estimated cost from an hourly rate; see docs/cost/README.md."
+            )
         return query_billed_cost(
             self.spark,
             start_time=start_time or self._created_at,
             end_time=end_time,
             job_run_id=self.job_run_id,
             notebook_id=self.notebook_id,
+            run_id=run_id,
+            cloud_provider=self.cloud_provider,
+            compute_region=self.region,
+            compute_type=self.workload_type,
         )
 
-    @staticmethod
-    def backfill_results_cost(results: Sequence[dict], billed: BilledCost) -> list[dict]:
-        """Spread a :class:`BilledCost` across result rows by ``duration_ms``."""
-        return backfill_results_cost(results, billed)
+    @property
+    def cost_attribution(self) -> str:
+        if getattr(self, "serverless", False):
+            return CostAttribution.RUN_BILLED
+        return super().cost_attribution
+
+    @property
+    def supports_billed_cost_lookup(self) -> bool:
+        return bool(getattr(self, "serverless", False))
 
     # ------------------------------------------------------------------
     # Compute sizing

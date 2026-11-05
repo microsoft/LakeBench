@@ -85,7 +85,7 @@ LakeBench supports multiple lakehouse compute engines. Each benchmark scenario d
 > - 🔜 = Coming Soon
 > - (Blank) = Not currently supported
 
-Installation, configuration, authentication, pricing, storage support, limitations, and coverage links live in the [engine documentation](docs/engines/README.md).
+Installation, configuration, authentication, pricing, storage support, limitations, and coverage links live in the [engine documentation](docs/engines/README.md). Cost attribution, including post-run billed cost lookups for consumption-billed compute, is covered in [Cost reporting](docs/cost/README.md).
 
 ## Where Can I Run LakeBench?
 Multiple modalities doesn't end at just benchmarks and engines, LakeBench also supports different runtimes and storage backends:

@@ -139,6 +139,11 @@ class BaseBenchmark(ABC):
             "total_cores": self.engine.get_total_cores(),
             "compute_size": self.engine.get_compute_size(),
         }
+        # Record how cost is attributed so result consumers know whether
+        # estimated_retail_job_cost is per item or must come from a post-run lookup.
+        cost_attribution = getattr(self.engine, "cost_attribution", None)
+        if cost_attribution is not None and isinstance(getattr(self.engine, "extended_engine_metadata", None), dict):
+            self.engine.extended_engine_metadata["cost_attribution"] = cost_attribution
         self.timer = timer
         self.timer.clear_results()
         self.results = []

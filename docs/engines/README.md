@@ -36,6 +36,8 @@ Engines backed by vCore compute can accept either `cost_per_vcore_hour` or `cost
 
 Automatic estimates use public list prices and are not invoice calculations. They do not account for negotiated discounts, commitments, credits, taxes, or other private billing adjustments.
 
+Not every engine can attribute cost to individual items while the benchmark runs. Consumption-billed compute, such as Databricks serverless, reports the actual billed cost per run through a post-run lookup instead. See [Cost reporting](../cost/README.md) for the attribution modes, the shared billed-cost schema, and the engines that support each mode.
+
 ## Adding an engine
 
 Contributor guidance for custom engines remains in the root [README](../../README.md). Internal helpers such as `DeltaRs` do not have standalone engine pages.
