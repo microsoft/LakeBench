@@ -69,7 +69,7 @@ LakeBench supports multiple lakehouse compute engines. Each benchmark scenario d
 | [Fabric Spark](docs/engines/fabric-spark/README.md) |    ✅    |   ✅   |   ✅  |    ✅    |
 | [Synapse Spark](docs/engines/synapse-spark/README.md) |    ✅    |   ✅   |   ✅  |    ✅    |
 | [HDInsight Spark](docs/engines/hdi-spark/README.md) |    ✅    |   ✅   |   ✅  |    ✅    |
-| [Databricks Spark](docs/engines/databricks-spark/README.md) |    ✅    |   ✅   |   ✅  |    ✅    |
+| [Databricks Spark (incl. Serverless)](docs/engines/databricks-spark/README.md) |    ✅    |   ✅   |   ✅  |    ✅    |
 | [Fabric Data Warehouse](docs/engines/fabric-data-warehouse/README.md) |    ✅    |   ✅   |   ✅  |    ✅    |
 | [Databricks SQL Warehouse](docs/engines/databricks-sql-warehouse/README.md) |    ✅    |   ✅   |   ✅  |    ✅    |
 | [DuckDB](docs/engines/duckdb/README.md) |    ✅    |   ✅   |   ✅  |    ✅    |
@@ -85,7 +85,7 @@ LakeBench supports multiple lakehouse compute engines. Each benchmark scenario d
 > - 🔜 = Coming Soon
 > - (Blank) = Not currently supported
 
-Installation, configuration, authentication, pricing, storage support, limitations, and coverage links live in the [engine documentation](docs/engines/README.md).
+Installation, configuration, authentication, pricing, storage support, limitations, and coverage links live in the [engine documentation](docs/engines/README.md). Cost attribution, including post-run billed cost lookups for consumption-billed compute, is covered in [Cost reporting](docs/cost/README.md).
 
 ## Where Can I Run LakeBench?
 Multiple modalities doesn't end at just benchmarks and engines, LakeBench also supports different runtimes and storage backends:

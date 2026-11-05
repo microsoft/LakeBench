@@ -3,12 +3,16 @@ from __future__ import annotations
 import importlib.util
 import os
 from abc import ABC
+from datetime import datetime
 from decimal import Decimal
 from importlib.metadata import version
-from typing import Any, Collection, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Collection, Mapping, Optional, Sequence
 from urllib.parse import urlparse
 
 import fsspec
+
+if TYPE_CHECKING:
+    from ..billing import BilledCost
 
 
 class MissingDependenciesError(ImportError):
@@ -323,6 +327,41 @@ class BaseEngine(ABC):
         if self.cost_per_hour is None and self.cost_per_vcore_hour is not None:
             self.cost_per_hour = float(Decimal(self.get_total_cores()) * Decimal(str(self.cost_per_vcore_hour)))
         return self.cost_per_hour
+
+    @property
+    def cost_attribution(self) -> str:
+        """How this engine attributes cost; one of :class:`lakebench.billing.CostAttribution`.
+
+        Defaults to item-level estimates when an hourly rate is configured.
+        Engines on consumption-billed compute override this with
+        ``CostAttribution.RUN_BILLED`` and implement :meth:`get_billed_cost`.
+        """
+        from ..billing import CostAttribution
+
+        if self.cost_per_hour is not None or self.cost_per_vcore_hour is not None:
+            return CostAttribution.ITEM_ESTIMATE
+        return CostAttribution.NOT_CONFIGURED
+
+    @property
+    def supports_billed_cost_lookup(self) -> bool:
+        """Whether :meth:`get_billed_cost` can return the actual billed cost of a run."""
+        return False
+
+    def get_billed_cost(
+        self,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        run_id: Optional[str] = None,
+    ) -> "BilledCost":
+        """Look up the actual billed cost of a run after it finishes.
+
+        Engines that support it return a platform-neutral
+        :class:`lakebench.billing.BilledCost`. See ``docs/cost/README.md``.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support post-run billed cost lookup in this configuration. "
+            "See docs/cost/README.md for which engines report billed cost."
+        )
 
     def create_external_location(self, location_uri: str):
         """

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, Literal, Optional
 
+from ...billing import MIXED_PERFORMANCE_MODE, BilledCost, summarize_performance_modes
 from .databricks_azure_dbu_map import (
     AZURE_SPARK_DBU_MAP,
     SERVERLESS_SQL_DBUS_PER_HOUR,
@@ -281,3 +283,181 @@ def estimate_sql_warehouse_cost(
         infrastructure_cost_per_hour=Decimal("0"),
         pricing_source=pricing_source,
     )
+
+
+#: Databricks documents that billable usage can take a few hours to land in
+#: ``system.billing.usage``; lookups ending more recently than this are flagged.
+BILLING_LAG = timedelta(hours=3)
+
+_BILLED_COST_QUERY = """
+SELECT
+    COALESCE(SUM(u.usage_quantity), 0) AS billed_units,
+    COALESCE(SUM(u.usage_quantity * p.pricing.effective_list.default), 0) AS list_cost,
+    COUNT(*) AS usage_record_count,
+    COUNT_IF(u.usage_quantity <> 0 AND p.sku_name IS NULL) AS unpriced_record_count,
+    MAX(u.usage_end_time) AS latest_usage_end,
+    COLLECT_SET(u.product_features.performance_target) AS performance_targets,
+    COLLECT_SET(u.sku_name) AS sku_names,
+    COLLECT_SET(p.currency_code) AS currency_codes,
+    COLLECT_SET(u.usage_metadata.job_id) AS job_ids,
+    COLLECT_SET(u.cloud) AS clouds
+FROM system.billing.usage AS u
+LEFT JOIN system.billing.list_prices AS p
+    ON u.sku_name = p.sku_name
+    AND u.cloud = p.cloud
+    AND u.usage_unit = p.usage_unit
+    AND u.usage_end_time >= p.price_start_time
+    AND (p.price_end_time IS NULL OR u.usage_end_time < p.price_end_time)
+WHERE u.usage_unit = 'DBU'
+    AND u.product_features.is_serverless = true
+    AND u.usage_date BETWEEN to_date(:start_time) AND to_date(:end_time)
+    AND u.usage_end_time > :start_time
+    AND u.usage_start_time < :end_time
+    AND {attribution_filter}
+"""
+
+
+def _to_utc(value: datetime) -> datetime:
+    # Naive datetimes are treated as local time, matching ``datetime.now()``
+    # used for ``run_datetime`` / ``start_datetime`` in benchmark results.
+    return value.astimezone(timezone.utc) if value.tzinfo is not None else value.astimezone().astimezone(timezone.utc)
+
+
+def query_billed_cost(
+    spark: Any,
+    start_time: datetime,
+    end_time: Optional[datetime] = None,
+    job_run_id: Optional[str] = None,
+    notebook_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+    cloud_provider: Optional[str] = None,
+    compute_region: Optional[str] = None,
+    compute_type: Optional[str] = None,
+) -> BilledCost:
+    """Sum serverless DBUs and list cost billed to a job run or notebook.
+
+    Parameters
+    ----------
+    spark : SparkSession
+        Session with ``SELECT`` access to ``system.billing.usage`` and
+        ``system.billing.list_prices``.
+    start_time, end_time : datetime
+        Window to sum usage over. ``end_time`` defaults to now. Usage records
+        cover time buckets, so any record overlapping the window is included.
+    job_run_id, notebook_id : str, optional
+        Attribution identifier; ``job_run_id`` takes precedence. Interactive
+        notebook attribution includes all serverless usage from that notebook
+        in the window, not only LakeBench work.
+    run_id, cloud_provider, compute_region, compute_type : str, optional
+        Context copied onto the returned :class:`BilledCost`.
+
+    Returns
+    -------
+    BilledCost
+        Platform-neutral record. ``performance_mode`` is the serverless
+        ``performance_target`` billed (``STANDARD``, ``PERFORMANCE_OPTIMIZED``,
+        or ``MIXED``). Only DBU usage is included; other usage types such as
+        networking are excluded.
+    """
+    if job_run_id:
+        attribution_type, attribution_filter = "job_run_id", "u.usage_metadata.job_run_id = :attribution_id"
+        attribution_id = str(job_run_id)
+    elif notebook_id:
+        attribution_type, attribution_filter = "notebook_id", "u.usage_metadata.notebook_id = :attribution_id"
+        attribution_id = str(notebook_id)
+    else:
+        raise DatabricksPricingError(
+            "Unable to look up billed serverless cost without a job_run_id or notebook_id. "
+            "Pass job_run_id or notebook_id explicitly."
+        )
+
+    start_utc = _to_utc(start_time)
+    end_utc = _to_utc(end_time) if end_time is not None else datetime.now(timezone.utc)
+    if end_utc <= start_utc:
+        raise ValueError("end_time must be after start_time.")
+
+    query = _BILLED_COST_QUERY.format(attribution_filter=attribution_filter)
+    args = {
+        "start_time": start_utc.replace(tzinfo=None),
+        "end_time": end_utc.replace(tzinfo=None),
+        "attribution_id": attribution_id,
+    }
+    try:
+        row = spark.sql(query, args=args).collect()[0]
+    except Exception as exc:
+        raise DatabricksPricingError(
+            "Unable to query system.billing.usage for billed serverless cost. Ensure the current "
+            f"principal can SELECT from system.billing.usage and system.billing.list_prices: {exc}"
+        ) from exc
+
+    unpriced = int(row["unpriced_record_count"] or 0)
+    if unpriced:
+        logger.warning(
+            "%s billed usage record(s) had no matching list price and are excluded from list_cost.",
+            unpriced,
+        )
+
+    performance_targets = sorted(str(mode) for mode in (row["performance_targets"] or []) if mode)
+    performance_mode = summarize_performance_modes(performance_targets)
+    if performance_mode == MIXED_PERFORMANCE_MODE:
+        logger.warning(
+            "Billed usage for %s=%s spans multiple serverless performance modes: %s.",
+            attribution_type,
+            attribution_id,
+            ", ".join(performance_targets),
+        )
+
+    currencies = sorted(str(code) for code in (row["currency_codes"] or []) if code)
+    if len(currencies) > 1:
+        logger.warning("Billed usage is priced in multiple currencies: %s.", ", ".join(currencies))
+    clouds = sorted(str(cloud) for cloud in (row["clouds"] or []) if cloud)
+
+    details = {}
+    for key, values in (
+        ("sku_names", row["sku_names"]),
+        ("job_ids", row["job_ids"]),
+        ("performance_targets", performance_targets),
+        ("currency_codes", currencies),
+    ):
+        joined = ",".join(sorted(str(value) for value in (values or []) if value))
+        if joined:
+            details[key] = joined
+
+    latest_usage_end = row["latest_usage_end"]
+    if isinstance(latest_usage_end, datetime) and latest_usage_end.tzinfo is None:
+        latest_usage_end = latest_usage_end.replace(tzinfo=timezone.utc)
+
+    billed = BilledCost(
+        platform="databricks",
+        billing_unit="DBU",
+        billed_units=Decimal(str(row["billed_units"] or 0)),
+        list_cost=Decimal(str(row["list_cost"] or 0)),
+        currency=currencies[0] if len(currencies) == 1 else ("MIXED" if currencies else "USD"),
+        attribution_type=attribution_type,
+        attribution_id=attribution_id,
+        window_start=start_utc,
+        window_end=end_utc,
+        latest_usage_end=latest_usage_end,
+        usage_record_count=int(row["usage_record_count"] or 0),
+        unpriced_record_count=unpriced,
+        may_be_incomplete=datetime.now(timezone.utc) - end_utc < BILLING_LAG,
+        pricing_source="databricks_system_billing_usage",
+        performance_mode=performance_mode,
+        cloud_provider=cloud_provider or (normalize_cloud_provider(clouds[0]) if len(clouds) == 1 else None),
+        compute_region=compute_region,
+        compute_type=compute_type,
+        run_id=run_id,
+        details=details,
+    )
+    logger.info(
+        "Billed cost for %s: %s %s (%s %s, performance_mode=%s, records=%s%s).",
+        billed.attribution,
+        billed.list_cost.quantize(Decimal("0.0001")),
+        billed.currency,
+        billed.billed_units.quantize(Decimal("0.0001")),
+        billed.billing_unit,
+        billed.performance_mode or "unknown",
+        billed.usage_record_count,
+        ", may be incomplete" if billed.may_be_incomplete else "",
+    )
+    return billed
