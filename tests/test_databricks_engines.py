@@ -444,6 +444,41 @@ def test_sql_warehouse_appends_results_through_remote_sql_from_local_runtime():
     assert statements[1].startswith("INSERT INTO delta.")
 
 
+def test_sql_warehouse_appends_results_to_managed_catalog_table():
+    warehouse = _make_sql_warehouse()
+    warehouse.execute_sql_statement = MagicMock()
+
+    warehouse._append_results_to_delta(
+        table_uri=None,
+        results=[{"run_id": "run-1"}],
+        generic_schema=[("run_id", "STRING")],
+        table_name="main.s.results",
+    )
+
+    statements = [call.args[0] for call in warehouse.execute_sql_statement.call_args_list]
+    assert statements[0].startswith("CREATE TABLE IF NOT EXISTS main.s.results (")
+    assert "LOCATION" not in statements[0]
+    assert "delta.`" not in statements[0]
+    assert statements[1].startswith("INSERT INTO main.s.results (run_id)")
+
+
+def test_sql_warehouse_appends_results_to_external_catalog_table():
+    warehouse = _make_sql_warehouse()
+    warehouse.execute_sql_statement = MagicMock()
+
+    warehouse._append_results_to_delta(
+        table_uri="abfss://container@account/results",
+        results=[{"run_id": "run-1"}],
+        generic_schema=[("run_id", "STRING")],
+        table_name="main.s.results",
+    )
+
+    statements = [call.args[0] for call in warehouse.execute_sql_statement.call_args_list]
+    assert statements[0].startswith("CREATE TABLE IF NOT EXISTS main.s.results (")
+    assert "LOCATION 'abfss://container@account/results' TBLPROPERTIES" in statements[0]
+    assert statements[1].startswith("INSERT INTO main.s.results (run_id)")
+
+
 def test_sql_warehouse_native_loader_uses_read_files_and_drops_trailing_field():
     warehouse = DatabricksSQLWarehouse.__new__(DatabricksSQLWarehouse)
     warehouse.SQLGLOT_DIALECT = "spark"

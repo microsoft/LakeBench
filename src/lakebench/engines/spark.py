@@ -351,17 +351,38 @@ class Spark(BaseEngine):
         }
         return StructType([StructField(name, type_mapping[data_type], True) for name, data_type in generic_schema])
 
-    def _append_results_to_delta(self, table_uri: str, results: list, generic_schema: list):
+    def _append_results_to_delta(
+        self,
+        table_uri: Optional[str],
+        results: list,
+        generic_schema: list,
+        table_name: Optional[str] = None,
+    ):
         """
         Append an array to a Delta table.
+
+        When ``table_name`` is given the rows are appended to that catalog table, which is
+        created if missing: as a managed table, or as an external table at ``table_uri`` when
+        that is also given. Otherwise the rows are appended to the Delta table at ``table_uri``.
         """
         schema = self._convert_generic_to_specific_schema(generic_schema)
         # Use default order of columns in dictionary
         columns = list(results[0].keys())
         df = self.spark.createDataFrame(results, schema=schema).select(*columns)
-        df.write.format("delta").option("mergeSchema", "true").option("delta.enableDeletionVectors", "false").option(
-            "delta.autoOptimize.autoCompact", "true"
-        ).option("delta.autoOptimize.optimizeWrite", "true").mode("append").save(table_uri)
+        writer = (
+            df.write.format("delta")
+            .option("mergeSchema", "true")
+            .option("delta.enableDeletionVectors", "false")
+            .option("delta.autoOptimize.autoCompact", "true")
+            .option("delta.autoOptimize.optimizeWrite", "true")
+            .mode("append")
+        )
+        if table_name is not None:
+            if table_uri is not None:
+                writer = writer.option("path", table_uri)
+            writer.saveAsTable(table_name)
+        else:
+            writer.save(table_uri)
 
     def get_total_cores(self) -> int:
         """

@@ -330,10 +330,20 @@ class DatabricksSQLWarehouse(BaseEngine):
                 ddl = create_node.sql(dialect="spark", pretty=True)
         self.execute_sql_statement(ddl)
 
-    def _append_results_to_delta(self, table_uri: str, results: list, generic_schema: list):
+    def _append_results_to_delta(
+        self,
+        table_uri: Optional[str],
+        results: list,
+        generic_schema: list,
+        table_name: Optional[str] = None,
+    ):
+        # A catalog name writes through Unity Catalog: managed, or external at ``table_uri``.
+        target = table_name if table_name is not None else f"delta.`{table_uri}`"
+        location = f"LOCATION '{table_uri}' " if table_name is not None and table_uri is not None else ""
         self.execute_sql_statement(
-            f"CREATE TABLE IF NOT EXISTS delta.`{table_uri}` "
+            f"CREATE TABLE IF NOT EXISTS {target} "
             f"({', '.join(f'{column} {data_type}' for column, data_type in generic_schema)}) "
+            f"{location}"
             "TBLPROPERTIES ('delta.enableDeletionVectors' = 'false')"
         )
 
@@ -354,7 +364,7 @@ class DatabricksSQLWarehouse(BaseEngine):
 
         columns = list(results[0].keys())
         values = ", ".join("(" + ", ".join(format_value(value) for value in row.values()) + ")" for row in results)
-        self.execute_sql_statement(f"INSERT INTO delta.`{table_uri}` ({', '.join(columns)}) VALUES {values}")
+        self.execute_sql_statement(f"INSERT INTO {target} ({', '.join(columns)}) VALUES {values}")
 
     def get_total_cores(self) -> int:
         size_map = {

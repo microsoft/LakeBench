@@ -64,6 +64,23 @@ engine = DatabricksSpark(catalog_name="main", schema_name="lakebench")
 - `serverless`: override serverless detection.
 - `job_run_id` and `notebook_id`: override the serverless billing attribution IDs that are otherwise read from the notebook context.
 
+## Saving results
+
+Pass `result_table_name` to save results to a Unity Catalog table. If the table doesn't exist, it's created as a managed table. If you also pass `result_table_uri`, the table is created as an external table at that location instead. Passing only `result_table_uri` writes to a Delta path, as before.
+
+```python
+from lakebench.benchmarks import TPCH
+
+benchmark = TPCH(
+    engine=engine,
+    scenario_name="sf1",
+    scale_factor=1,
+    input_folder_uri="/Volumes/main/lakebench/tpch_sf1",
+    save_results=True,
+    result_table_name="main.lakebench.results",
+)
+```
+
 ## Pricing
 
 ### Azure
@@ -117,7 +134,8 @@ billed = engine.get_billed_cost(run_id=benchmark.header_detail_dict["run_id"])
 from lakebench.billing import BILLED_COST_SCHEMA, run_window_from_results
 from lakebench.engines.resources.databricks_pricing import query_billed_cost
 
-rows = [r.asDict() for r in spark.read.format("delta").load(result_table_uri).where(f"run_id = '{run_id}'").collect()]
+rows = [r.asDict() for r in spark.table(result_table_name).where(f"run_id = '{run_id}'").collect()]
+# or, for a path-based results table: spark.read.format("delta").load(result_table_uri)
 props = rows[0]["engine_properties"]
 start, end = run_window_from_results(rows)
 billed = query_billed_cost(
@@ -131,7 +149,7 @@ billed = query_billed_cost(
     compute_region=props.get("compute_region"),
     compute_type=props.get("workload_type"),
 )
-engine._append_results_to_delta(cost_table_uri, [billed.to_row()], BILLED_COST_SCHEMA)
+engine._append_results_to_delta(None, [billed.to_row()], BILLED_COST_SCHEMA, table_name=cost_table_name)
 ```
 
 Run the lookup on Databricks. `start_datetime` values are naive local timestamps, and serverless runs in UTC.

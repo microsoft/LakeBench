@@ -52,7 +52,11 @@ class BaseBenchmark(ABC):
         ``input_folder_uri`` on benchmark constructors; both names are
         supported and refer to the same location.
     result_table_uri : Optional[str]
-        The path where benchmark results will be saved, if `save_results` is True.
+        The storage path of the Delta table where benchmark results will be saved, if `save_results` is True.
+        When `result_table_name` is also set, this is the location of the external catalog table.
+    result_table_name : Optional[str]
+        The catalog table name (e.g. ``main.bench.results``) where benchmark results will be saved, if
+        `save_results` is True. Created if missing; managed unless `result_table_uri` is also set.
     save_results : bool
         Flag indicating whether to save benchmark results to a Delta table.
     header_detail_dict : dict
@@ -109,10 +113,12 @@ class BaseBenchmark(ABC):
         result_table_uri: Optional[str],
         save_results: bool = False,
         run_id: Optional[str] = None,
+        result_table_name: Optional[str] = None,
     ):
         self.engine = engine
         self.scenario_name = scenario_name
         self.result_table_uri = result_table_uri
+        self.result_table_name = result_table_name
         self.save_results = save_results
 
         if not engine.SUPPORTS_MOUNT_PATH and input_parquet_folder_uri[:1] == "/":
@@ -252,9 +258,13 @@ class BaseBenchmark(ABC):
 
         try:
             if self.save_results:
-                if self.result_table_uri is None:
-                    raise ValueError("result_table_uri must be provided if save_results is True.")
-                else:
-                    self.engine._append_results_to_delta(self.result_table_uri, result_array, self.RESULT_SCHEMA)
+                if self.result_table_uri is None and self.result_table_name is None:
+                    raise ValueError("result_table_uri or result_table_name must be provided if save_results is True.")
+                self.engine._append_results_to_delta(
+                    self.result_table_uri,
+                    result_array,
+                    self.RESULT_SCHEMA,
+                    table_name=self.result_table_name,
+                )
         finally:
             self.timer.clear_results()

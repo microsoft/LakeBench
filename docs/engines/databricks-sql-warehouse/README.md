@@ -44,6 +44,23 @@ engine = DatabricksSQLWarehouse(
 
 SQL Warehouse intentionally does not accept `cost_per_vcore_hour`.
 
+## Saving results
+
+Pass `result_table_name` to save results to a Unity Catalog table. If the table doesn't exist, it's created as a managed table. If you also pass `result_table_uri`, the table is created as an external table at that location instead. Passing only `result_table_uri` writes to a Delta path, as before.
+
+```python
+from lakebench.benchmarks import TPCH
+
+benchmark = TPCH(
+    engine=engine,
+    scenario_name="sf1",
+    scale_factor=1,
+    input_folder_uri="/Volumes/main/lakebench/tpch_sf1",
+    save_results=True,
+    result_table_name="main.lakebench.results",
+)
+```
+
 ## Serverless pricing
 
 Warehouse-size DBUs/hour are multiplied by a DBU list rate. Resolution order is:

@@ -51,7 +51,13 @@ class TPCH(_LoadAndQuery):
         Source data format. ``"native"`` reads the TPC generator's pipe-delimited ``.tbl`` files,
         typing them from the benchmark's resolved DDL.
     result_table_uri : str, optional
-        Table URI where results will be saved. Must be specified if `save_results` is True.
+        Storage URI of the Delta table where results will be saved. When used together with
+        `result_table_name`, the catalog table is created as an external table at this location.
+    result_table_name : str, optional
+        Catalog table name (e.g. ``"main.bench.results"``) where results will be saved. The table is
+        created if it doesn't exist (managed unless `result_table_uri` is also given). Only supported
+        by Spark-based engines and Databricks SQL Warehouse. One of `result_table_uri` or
+        `result_table_name` must be specified if `save_results` is True.
     save_results : bool
         Whether to save the benchmark results. Results can also be accessed via the `self.results`
         attribute after running the benchmark.

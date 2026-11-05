@@ -213,6 +213,7 @@ class _LoadAndQuery(BaseBenchmark):
         analyze: Union[bool, Literal["none", "full", "selective"]] = "none",
         input_format: str = "parquet",
         input_folder_uri: Optional[str] = None,
+        result_table_name: Optional[str] = None,
     ):
         input_parquet_folder_uri = resolve_input_folder_uri(input_parquet_folder_uri, input_folder_uri)
         if ddl_variant is not None and ddl_override is not None:
@@ -233,7 +234,15 @@ class _LoadAndQuery(BaseBenchmark):
         self._ddl_override_dialect = ddl_override_dialect
 
         self.scale_factor = scale_factor
-        super().__init__(engine, scenario_name, input_parquet_folder_uri, result_table_uri, save_results, run_id)
+        super().__init__(
+            engine,
+            scenario_name,
+            input_parquet_folder_uri,
+            result_table_uri,
+            save_results,
+            run_id,
+            result_table_name=result_table_name,
+        )
         self._configure_query_resources()
 
         if ddl_override is not None:

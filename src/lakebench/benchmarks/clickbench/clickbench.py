@@ -45,7 +45,13 @@ class ClickBench(_LoadAndQuery):
     input_folder_uri : str, optional
         Path to the input parquet files, also accepted as ``input_parquet_folder_uri``.
     result_table_uri : str, optional
-        Table URI where results will be saved. Must be specified if `save_results` is True.
+        Storage URI of the Delta table where results will be saved. When used together with
+        `result_table_name`, the catalog table is created as an external table at this location.
+    result_table_name : str, optional
+        Catalog table name (e.g. ``"main.bench.results"``) where results will be saved. The table is
+        created if it doesn't exist (managed unless `result_table_uri` is also given). Only supported
+        by Spark-based engines and Databricks SQL Warehouse. One of `result_table_uri` or
+        `result_table_name` must be specified if `save_results` is True.
     save_results : bool
         Whether to save the benchmark results. Results can also be accessed via the `self.results`
         attribute after running the benchmark.
@@ -146,6 +152,7 @@ class ClickBench(_LoadAndQuery):
         optimize: bool = False,
         analyze: Union[bool, Literal["none", "full", "selective"]] = "none",
         input_folder_uri: Optional[str] = None,
+        result_table_name: Optional[str] = None,
     ):
         super().__init__(
             engine=engine,
@@ -155,6 +162,7 @@ class ClickBench(_LoadAndQuery):
             input_parquet_folder_uri=input_parquet_folder_uri,
             input_folder_uri=input_folder_uri,
             result_table_uri=result_table_uri,
+            result_table_name=result_table_name,
             save_results=save_results,
             ddl_variant=ddl_variant,
             ddl_override=ddl_override,

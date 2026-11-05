@@ -483,7 +483,13 @@ class BaseEngine(ABC):
         }
         return pa.schema([(name, type_mapping[data_type]) for name, data_type in generic_schema])
 
-    def _append_results_to_delta(self, table_uri: str, results: list, generic_schema: list):
+    def _append_results_to_delta(
+        self,
+        table_uri: Optional[str],
+        results: list,
+        generic_schema: list,
+        table_name: Optional[str] = None,
+    ):
         """
         Appends a list of result records to an existing Delta table.
 
@@ -497,6 +503,9 @@ class BaseEngine(ABC):
         generic_schema : list of tuple
             A list of (field_name, field_type) tuples defining the generic schema
             for the rows in `results`.
+        table_name : str, optional
+            Catalog table name. Not supported by the delta-rs writer used here; engines with a
+            catalog (Spark, Databricks SQL Warehouse) override this method.
 
         Notes
         -----
@@ -506,6 +515,12 @@ class BaseEngine(ABC):
         - Uses DeltaRs to write the data in "append" mode.
         - If the installed `deltalake` version is 0.x, forces the Rust engine.
         """
+        if table_name is not None:
+            raise NotImplementedError(
+                f"{type(self).__name__} does not support writing results to a catalog table; "
+                "use result_table_uri instead."
+            )
+
         import pyarrow as pa
 
         from ..engines.delta_rs import DeltaRs

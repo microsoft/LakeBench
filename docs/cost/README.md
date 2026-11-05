@@ -50,6 +50,8 @@ Write the result with the engine's generic result writer:
 from lakebench.billing import BILLED_COST_SCHEMA
 
 engine._append_results_to_delta(cost_table_uri, [billed.to_row()], BILLED_COST_SCHEMA)
+# or, on Spark and Databricks SQL Warehouse, a catalog table (created if missing):
+engine._append_results_to_delta(None, [billed.to_row()], BILLED_COST_SCHEMA, table_name=cost_table_name)
 ```
 
 If `may_be_incomplete` is `True`, look the cost up again later and replace the row. A `MERGE` on `run_id` keeps the table idempotent.
