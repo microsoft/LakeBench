@@ -69,7 +69,7 @@ LakeBench supports multiple lakehouse compute engines. Each benchmark scenario d
 | [Fabric Spark](docs/engines/fabric-spark/README.md) |    ✅    |   ✅   |   ✅  |    ✅    |
 | [Synapse Spark](docs/engines/synapse-spark/README.md) |    ✅    |   ✅   |   ✅  |    ✅    |
 | [HDInsight Spark](docs/engines/hdi-spark/README.md) |    ✅    |   ✅   |   ✅  |    ✅    |
-| [Databricks Spark](docs/engines/databricks-spark/README.md) |    ✅    |   ✅   |   ✅  |    ✅    |
+| [Databricks Spark (incl. Serverless)](docs/engines/databricks-spark/README.md) |    ✅    |   ✅   |   ✅  |    ✅    |
 | [Fabric Data Warehouse](docs/engines/fabric-data-warehouse/README.md) |    ✅    |   ✅   |   ✅  |    ✅    |
 | [Databricks SQL Warehouse](docs/engines/databricks-sql-warehouse/README.md) |    ✅    |   ✅   |   ✅  |    ✅    |
 | [DuckDB](docs/engines/duckdb/README.md) |    ✅    |   ✅   |   ✅  |    ✅    |

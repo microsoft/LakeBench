@@ -1,10 +1,14 @@
+import logging
 import os
 import posixpath
+from functools import cached_property
 from typing import Mapping, Optional, Sequence
 
 import tenacity
 
 from .base import BaseEngine
+
+logger = logging.getLogger(__name__)
 
 
 class Spark(BaseEngine):
@@ -38,6 +42,21 @@ class Spark(BaseEngine):
     SUPPORTS_SCHEMA_PREP = True
     REQUIRED_MODULES = ("pyspark",)
     INSTALL_EXTRA = "spark"
+    #: Spark configs read one-by-one when the full config map is unavailable
+    #: (Spark Connect, e.g. Databricks serverless or shared access mode).
+    SPARK_CONFIGS_TO_LOG = (
+        "spark.executor.memory",
+        "spark.databricks.delta.optimizeWrite.enabled",
+        "spark.databricks.delta.optimizeWrite.binSize",
+        "spark.sql.autoBroadcastJoinThreshold",
+        "spark.sql.sources.parallelPartitionDiscovery.parallelism",
+        "spark.sql.cbo.enabled",
+        "spark.sql.shuffle.partitions",
+        "spark.task.cpus",
+        "spark.sql.parquet.compression.codec",
+    )
+    #: Additional configs read via the fallback path; not logged as metadata.
+    SPARK_CONFIGS_TO_READ: tuple = ()
 
     def __init__(
         self,
@@ -112,6 +131,11 @@ class Spark(BaseEngine):
 
         self.schema_uri = schema_uri
         if spark_measure_telemetry:
+            if not self._has_spark_context:
+                raise ValueError(
+                    "spark_measure_telemetry requires a SparkContext, which is unavailable on Spark Connect "
+                    "(e.g. Databricks serverless or shared access mode). Disable spark_measure_telemetry."
+                )
             try:
                 from sparkmeasure import StageMetrics
 
@@ -122,7 +146,7 @@ class Spark(BaseEngine):
                 )
         self.spark_measure_telemetry = spark_measure_telemetry
 
-        self.version: str = self.spark.sparkContext.version
+        self.version: str = self.spark.version
 
         self.catalog_name = catalog_name if self.runtime != "local_unknown" else None
         self.schema_name = schema_name
@@ -134,28 +158,14 @@ class Spark(BaseEngine):
             cost_per_hour=cost_per_hour,
         )
         self.spark_configs = self.__get_spark_session_configs()
-        self.extended_engine_metadata.update(
-            {
-                "parquet.block.size": self.spark.sparkContext._jsc.hadoopConfiguration().get("parquet.block.size")
-                or "",
-            }
-        )
-        spark_configs_to_log = {
-            k: v
-            for k, v in self.spark_configs.items()
-            if k
-            in [
-                "spark.executor.memory",
-                "spark.databricks.delta.optimizeWrite.enabled",
-                "spark.databricks.delta.optimizeWrite.binSize",
-                "spark.sql.autoBroadcastJoinThreshold",
-                "spark.sql.sources.parallelPartitionDiscovery.parallelism",
-                "spark.sql.cbo.enabled",
-                "spark.sql.shuffle.partitions",
-                "spark.task.cpus",
-                "spark.sql.parquet.compression.codec",
-            ]
-        }
+        parquet_block_size = ""
+        if self._has_spark_context:
+            try:
+                parquet_block_size = self.spark.sparkContext._jsc.hadoopConfiguration().get("parquet.block.size") or ""
+            except Exception:
+                parquet_block_size = ""
+        self.extended_engine_metadata.update({"parquet.block.size": parquet_block_size})
+        spark_configs_to_log = {k: v for k, v in self.spark_configs.items() if k in self.SPARK_CONFIGS_TO_LOG}
 
         self.extended_engine_metadata.update(spark_configs_to_log)
 
@@ -163,24 +173,53 @@ class Spark(BaseEngine):
         self.run_analyze_after_load = self.compute_stats_all_cols
         self.tblproperties = tblproperties if tblproperties is not None else {}
 
+    @cached_property
+    def _has_spark_context(self) -> bool:
+        """Whether a classic SparkContext (and its JVM gateway) is usable.
+
+        Spark Connect sessions, such as Databricks serverless or shared access
+        mode, don't expose ``sparkContext``.
+        """
+        try:
+            return self.spark.sparkContext._jsc is not None
+        except Exception:
+            return False
+
+    def _get_conf(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        """Read a Spark config, returning ``default`` if it is unset or not readable."""
+        try:
+            value = self.spark.conf.get(key, default)
+        except Exception:
+            return default
+        return default if value is None else value
+
     def __get_spark_session_configs(self) -> dict:
         """
-        Extract all Spark session configuration parameters.
+        Extract Spark session configuration parameters.
 
         Returns
         -------
         dict
-            Dictionary containing all Spark configuration key-value pairs.
+            All Spark configuration key-value pairs when the JVM config map is
+            reachable; otherwise the subset listed in ``SPARK_CONFIGS_TO_LOG``
+            and ``SPARK_CONFIGS_TO_READ`` that is readable.
         """
-        scala_map = self.spark.conf._jconf.getAll()
-        spark_conf_dict = {}
+        try:
+            scala_map = self.spark.conf._jconf.getAll()
+            spark_conf_dict = {}
+            iterator = scala_map.iterator()
+            while iterator.hasNext():
+                entry = iterator.next()
+                spark_conf_dict[entry._1()] = entry._2()
+            return spark_conf_dict
+        except Exception:
+            pass
 
-        iterator = scala_map.iterator()
-        while iterator.hasNext():
-            entry = iterator.next()
-            key = entry._1()
-            value = entry._2()
-            spark_conf_dict[key] = value
+        spark_conf_dict = {}
+        for key in (*self.SPARK_CONFIGS_TO_LOG, *self.SPARK_CONFIGS_TO_READ):
+            value = self._get_conf(key)
+            if value is not None:
+                spark_conf_dict[key] = value
         return spark_conf_dict
 
     # Use tenacity to retry on NativeIO error common in spark running on local Windows
@@ -329,7 +368,10 @@ class Spark(BaseEngine):
         Returns the total number of CPU cores available in the Spark cluster.
 
         Assumes that the driver and workers nodes are all the same VM size.
+        Returns ``0`` when no SparkContext is available.
         """
+        if not self._has_spark_context:
+            return 0
         cores = int(
             len(
                 set(
@@ -345,7 +387,10 @@ class Spark(BaseEngine):
         Returns a formatted string with the compute size.
 
         Assumes that the driver and workers nodes are all the same VM size.
+        Returns ``"unknown"`` when no SparkContext is available.
         """
+        if not self._has_spark_context:
+            return "unknown"
         sc_conf_dict = {key: value for key, value in self.spark.sparkContext.getConf().getAll()}
         executor_count = self.spark.sparkContext._jsc.sc().getExecutorMemoryStatus().size() - 1
         executor_cores = int(sc_conf_dict.get("spark.executor.cores", os.cpu_count()))
@@ -482,5 +527,13 @@ class Spark(BaseEngine):
         )
 
     def vacuum_table(self, table_name: str, retain_hours: int = 168, retention_check: bool = True):
-        self.spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", retention_check)
+        try:
+            self.spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", retention_check)
+        except Exception as exc:
+            if not retention_check:
+                logger.warning(
+                    "Unable to disable the Delta retention duration check (%s); VACUUM may reject "
+                    "retain_hours below the table's retention threshold.",
+                    exc,
+                )
         self.spark.sql(f"VACUUM {self.full_catalog_schema_reference}.{table_name} RETAIN {retain_hours} HOURS")

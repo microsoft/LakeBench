@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Callable, Literal, Optional
+from typing import Any, Callable, Literal, Optional, Sequence
 
 from .databricks_azure_dbu_map import (
     AZURE_SPARK_DBU_MAP,
@@ -281,3 +282,149 @@ def estimate_sql_warehouse_cost(
         infrastructure_cost_per_hour=Decimal("0"),
         pricing_source=pricing_source,
     )
+
+
+#: Databricks documents that billable usage can take a few hours to land in
+#: ``system.billing.usage``; lookups ending more recently than this are flagged.
+BILLING_LAG = timedelta(hours=3)
+
+_BILLED_COST_QUERY = """
+SELECT
+    COALESCE(SUM(u.usage_quantity), 0) AS dbus,
+    COALESCE(SUM(u.usage_quantity * p.pricing.effective_list.default), 0) AS list_cost_usd,
+    COUNT(*) AS row_count,
+    COUNT_IF(p.sku_name IS NULL) AS unpriced_row_count
+FROM system.billing.usage AS u
+LEFT JOIN system.billing.list_prices AS p
+    ON u.sku_name = p.sku_name
+    AND u.cloud = p.cloud
+    AND u.usage_unit = p.usage_unit
+    AND u.usage_end_time >= p.price_start_time
+    AND (p.price_end_time IS NULL OR u.usage_end_time < p.price_end_time)
+WHERE u.usage_unit = 'DBU'
+    AND u.product_features.is_serverless = true
+    AND u.usage_date BETWEEN to_date(:start_time) AND to_date(:end_time)
+    AND u.usage_end_time > :start_time
+    AND u.usage_start_time < :end_time
+    AND {attribution_filter}
+"""
+
+
+@dataclass(frozen=True)
+class BilledCost:
+    """Serverless usage billed to a benchmark run, from Databricks system tables."""
+
+    dbus: Decimal
+    list_cost_usd: Decimal
+    row_count: int
+    unpriced_row_count: int
+    attribution: str
+    start_time: datetime
+    end_time: datetime
+    may_be_incomplete: bool
+
+    def metadata(self) -> dict[str, str]:
+        return {
+            "billed_dbus": str(self.dbus.quantize(Decimal("0.0000"))),
+            "billed_list_cost_usd": str(self.list_cost_usd.quantize(Decimal("0.0000"))),
+            "billed_usage_rows": str(self.row_count),
+            "billed_attribution": self.attribution,
+            "billed_may_be_incomplete": str(self.may_be_incomplete),
+            "pricing_source": "databricks_system_billing_usage",
+        }
+
+
+def _to_utc(value: datetime) -> datetime:
+    # Naive datetimes are treated as local time, matching ``datetime.now()``
+    # used for ``run_datetime`` / ``start_datetime`` in benchmark results.
+    return value.astimezone(timezone.utc) if value.tzinfo is not None else value.astimezone().astimezone(timezone.utc)
+
+
+def query_billed_cost(
+    spark: Any,
+    start_time: datetime,
+    end_time: Optional[datetime] = None,
+    job_run_id: Optional[str] = None,
+    notebook_id: Optional[str] = None,
+) -> BilledCost:
+    """Sum serverless DBUs and list cost billed to a job run or notebook.
+
+    Parameters
+    ----------
+    spark : SparkSession
+        Session with ``SELECT`` access to ``system.billing.usage`` and
+        ``system.billing.list_prices``.
+    start_time, end_time : datetime
+        Window to sum usage over. ``end_time`` defaults to now. Usage records
+        are hourly, so any record overlapping the window is included.
+    job_run_id, notebook_id : str, optional
+        Attribution identifier; ``job_run_id`` takes precedence. Interactive
+        notebook attribution includes all serverless usage from that notebook
+        in the window, not only LakeBench work.
+    """
+    if job_run_id:
+        attribution, attribution_filter = f"job_run_id={job_run_id}", "u.usage_metadata.job_run_id = :attribution_id"
+        attribution_id = str(job_run_id)
+    elif notebook_id:
+        attribution, attribution_filter = f"notebook_id={notebook_id}", "u.usage_metadata.notebook_id = :attribution_id"
+        attribution_id = str(notebook_id)
+    else:
+        raise DatabricksPricingError(
+            "Unable to look up billed serverless cost without a job_run_id or notebook_id. "
+            "Pass job_run_id or notebook_id explicitly."
+        )
+
+    start_utc = _to_utc(start_time)
+    end_utc = _to_utc(end_time) if end_time is not None else datetime.now(timezone.utc)
+    if end_utc <= start_utc:
+        raise ValueError("end_time must be after start_time.")
+
+    query = _BILLED_COST_QUERY.format(attribution_filter=attribution_filter)
+    args = {
+        "start_time": start_utc.replace(tzinfo=None),
+        "end_time": end_utc.replace(tzinfo=None),
+        "attribution_id": attribution_id,
+    }
+    try:
+        row = spark.sql(query, args=args).collect()[0]
+    except Exception as exc:
+        raise DatabricksPricingError(
+            "Unable to query system.billing.usage for billed serverless cost. Ensure the current "
+            f"principal can SELECT from system.billing.usage and system.billing.list_prices: {exc}"
+        ) from exc
+
+    unpriced = int(row["unpriced_row_count"] or 0)
+    if unpriced:
+        logger.warning(
+            "%s billed usage row(s) had no matching list price and are excluded from list_cost_usd.",
+            unpriced,
+        )
+    return BilledCost(
+        dbus=Decimal(str(row["dbus"] or 0)),
+        list_cost_usd=Decimal(str(row["list_cost_usd"] or 0)),
+        row_count=int(row["row_count"] or 0),
+        unpriced_row_count=unpriced,
+        attribution=attribution,
+        start_time=start_utc,
+        end_time=end_utc,
+        may_be_incomplete=datetime.now(timezone.utc) - end_utc < BILLING_LAG,
+    )
+
+
+def backfill_results_cost(results: Sequence[dict], billed: BilledCost) -> list[dict]:
+    """Apportion a billed total across result rows by ``duration_ms``.
+
+    Serverless usage is not attributable per query, so this is an
+    approximation: each row's ``estimated_retail_job_cost`` is the billed list
+    cost weighted by its share of total duration. Returns new row dicts.
+    """
+    total_ms = sum(int(row.get("duration_ms") or 0) for row in results)
+    if total_ms <= 0:
+        return [dict(row) for row in results]
+    updated = []
+    for row in results:
+        share = Decimal(int(row.get("duration_ms") or 0)) / Decimal(total_ms)
+        new_row = dict(row)
+        new_row["estimated_retail_job_cost"] = (billed.list_cost_usd * share).quantize(Decimal("0.0000000001"))
+        updated.append(new_row)
+    return updated

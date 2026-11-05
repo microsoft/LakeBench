@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from contextlib import contextmanager
 from datetime import datetime
@@ -13,14 +14,29 @@ def _format_timer_label(phase: str, test_item: str, sub_phase: str = None, progr
 
 
 def _has_spark_context(engine):
-    """Check if engine has a usable sparkContext (not available in Databricks Connect)."""
+    """Check if engine has a usable sparkContext (not available on Spark Connect)."""
     if not isinstance(engine, Spark):
         return False
-    try:
-        engine.spark.sparkContext
-        return True
-    except Exception:
-        return False
+    return engine._has_spark_context
+
+
+_INVALID_TAG_CHARS = re.compile(r"[^A-Za-z0-9_.:\-\[\] ]+")
+
+
+def _to_spark_connect_tag(label: str) -> str:
+    """Convert a timer label into a valid Spark Connect operation tag (no commas, non-empty)."""
+    tag = _INVALID_TAG_CHARS.sub("_", label).strip()
+    return tag or "lakebench"
+
+
+def _spark_connect_session(engine):
+    """Return a tag-capable Spark Connect session for the engine, or ``None``."""
+    if not isinstance(engine, Spark) or engine._has_spark_context:
+        return None
+    spark = getattr(engine, "spark", None)
+    if spark is None or not callable(getattr(spark, "addTag", None)):
+        return None
+    return spark
 
 
 @contextmanager
@@ -55,6 +71,16 @@ def timer(
             engine.capture_metrics.begin()
             engine.spark.sparkContext.setLocalProperty("spark.scheduler.pool", "lakebench")
 
+    connect_session = _spark_connect_session(engine)
+    connect_tag = None
+    if connect_session is not None:
+        try:
+            connect_tag = _to_spark_connect_tag(timer_context.context_decorator)
+            connect_session.addTag(connect_tag)
+        except Exception as exc:
+            logger.debug("Unable to add Spark Connect tag: %s", exc)
+            connect_tag = None
+
     start = time.time()
     start_datetime = datetime.now()
     success = True
@@ -81,6 +107,12 @@ def timer(
         # Set execution metadata to an empty dict if it is not set or was set to anything other than a dict
         if not isinstance(timer_context.execution_telemetry, dict):
             timer_context.execution_telemetry = {}
+
+        if connect_tag is not None:
+            try:
+                connect_session.removeTag(connect_tag)
+            except Exception as exc:
+                logger.debug("Unable to remove Spark Connect tag: %s", exc)
 
         if has_sc:
             engine.spark.sparkContext.setJobDescription(None)
