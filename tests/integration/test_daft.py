@@ -17,7 +17,7 @@ import os
 import pytest
 
 from lakebench.utils.path_utils import to_file_uri
-from tests.integration.conftest import report_and_assert, run_benchmark
+from tests.integration.conftest import expected_workload, report_and_assert, run_benchmark
 
 pytest.importorskip("daft", reason="requires lakebench[daft] extra")
 pytest.importorskip("deltalake", reason="requires lakebench[daft] extra")
@@ -44,7 +44,9 @@ def test_tpch_daft(tpch_parquet_dir, tmp_path):
     results, exc = run_benchmark(
         _engine(tmp_path, "tpch"), TPCH, to_file_uri(tpch_parquet_dir), "load_and_query", scale_factor=0.1
     )
-    report_and_assert(results, "TPC-H", "Daft", exc)
+    report_and_assert(
+        results, "TPC-H", "Daft", exc, expected_results=expected_workload(TPCH, "load_and_query"), min_pass_rate=0.0
+    )
 
 
 @pytest.mark.integration
@@ -54,7 +56,9 @@ def test_tpcds_daft(tpcds_parquet_dir, tmp_path):
     results, exc = run_benchmark(
         _engine(tmp_path, "tpcds"), TPCDS, to_file_uri(tpcds_parquet_dir), "load_and_query", scale_factor=0.1
     )
-    report_and_assert(results, "TPC-DS", "Daft", exc)
+    report_and_assert(
+        results, "TPC-DS", "Daft", exc, expected_results=expected_workload(TPCDS, "load_and_query"), min_pass_rate=0.0
+    )
 
 
 @pytest.mark.integration
@@ -64,7 +68,14 @@ def test_clickbench_daft(clickbench_parquet_dir, tmp_path):
     results, exc = run_benchmark(
         _engine(tmp_path, "clickbench"), ClickBench, to_file_uri(clickbench_parquet_dir), "load_and_query"
     )
-    report_and_assert(results, "ClickBench", "Daft", exc)
+    report_and_assert(
+        results,
+        "ClickBench",
+        "Daft",
+        exc,
+        expected_results=expected_workload(ClickBench, "load_and_query"),
+        min_pass_rate=0.0,
+    )
 
 
 @pytest.mark.integration
@@ -74,4 +85,6 @@ def test_eltbench_daft(tpcds_parquet_dir, tmp_path):
     results, exc = run_benchmark(
         _engine(tmp_path, "eltbench"), ELTBench, to_file_uri(tpcds_parquet_dir), "light", scale_factor=0.1
     )
-    report_and_assert(results, "ELTBench", "Daft", exc, min_pass_rate=0.0)
+    report_and_assert(
+        results, "ELTBench", "Daft", exc, expected_results=expected_workload(ELTBench, "light"), min_pass_rate=0.0
+    )

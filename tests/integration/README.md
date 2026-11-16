@@ -1,6 +1,6 @@
 # Integration Tests
 
-Each test file runs all supported benchmarks for a single engine. Tests are marked `@pytest.mark.integration` and are **not** collected by default — you must opt in via the commands below.
+Each test file runs all supported benchmarks for a single engine. Tests are marked `@pytest.mark.integration`; select a file with the commands below, or exclude this directory with `--ignore=tests/integration` for a unit-only run. Missing engine extras skip their modules.
 
 > **Scale factor:** Data is generated at SF 0.1 (≈ 10% of SF 1) to keep CI runs fast.
 
@@ -87,12 +87,14 @@ Daft must be synced on its own: it pins `deltalake` to 1.5.x (Daft cannot read t
 
 | Benchmark  | DuckDB | Daft | Polars | Spark | Sail |
 |------------|:------:|:----:|:------:|:-----:|:----:|
-| TPC-H      | ✅     | ❌   | ✅     | ✅    | ✅   |
-| TPC-DS     | ✅     | ❌   | ✅     | ✅    | ✅   |
-| ClickBench | ✅     | —    | ✅     | ✅    | ✅   |
-| ELTBench   | ✅     | ❌   | ✅     | ✅    | ✅   |
+| TPC-H      | ✅     | ❌   | ⚠️     | ✅    | ✅   |
+| TPC-DS     | ✅     | ❌   | ⚠️     | ✅    | ✅   |
+| ClickBench | ✅     | —    | ⚠️     | ✅    | ✅   |
+| ELTBench   | ✅     | ❌   | ⚠️     | ✅    | ✅   |
 
 Daft's ❌ entries are the `Utf8View` load failure described above, not missing coverage; the tests exist and are skipped by default.
+
+Polars's ⚠️ entries denote a partial-support assertion policy, not a claim that every benchmark has failures. Query/task failures remain warnings provided at least one succeeds; the complete workload and successful Load-phase results are still required. Per-query known-good/known-failure baselines are tracked separately in #121.
 
 ClickBench uses the committed 100-row sample at `tests/integration/data/clickbench_sample.parquet`.
 
@@ -100,6 +102,11 @@ ClickBench uses the committed 100-row sample at `tests/integration/data/clickben
 
 ## Pass / fail semantics
 
-- **Individual query failures** → `UserWarning`, test still passes.
-- **All queries fail** or **all tables fail to load** → test fails.
-- **Engine crash before any results** → `UserWarning`, test still passes (graceful degradation).
+1. **Any unexpected run exception fails**, including a crash before any results, an abort after partial success, or an exception after all results were recorded. The exception and available results are retained in the compatibility report.
+2. **Completeness is mandatory, independently of pass rate.** Every caller supplies `expected_results=expected_workload(BenchmarkClass, mode)`. Missing, unexpected, duplicate, or zero results fail. Keys include phase, sub-phase, item, and iteration; an optimization result cannot substitute for a load, and repeated ELT merges must have distinct expected iterations.
+3. **Every Load-phase table load must succeed.** One failed load fails a load-and-query benchmark, even when queries are allowed partial support. ELTBench records its five loads as tasks and applies the task-success threshold below.
+4. **DuckDB, Spark, and Sail require 100% query/task success** (`min_pass_rate=1.0`). Polars and opt-in Daft explicitly retain partial support (`min_pass_rate=0.0`): individual failures warn, but all queries/tasks failing fails the test. This threshold never permits incomplete work or a run exception.
+
+The default `load_and_query` inventories are 8 loads + 22 queries for TPC-H, 24 loads + 103 executable queries (including template variants) for TPC-DS, and 1 load + 43 queries for ClickBench. `load` requires only loads; `query` and `power_test` require only queries. ELTBench `light` requires all 12 tasks: five loads, fact-table creation, three merge iterations, optimize, vacuum, and the ad-hoc query.
+
+`expected_workload` describes the default complete query/table selection without optional load optimization or analysis. Tests using custom query selections or maintenance options must explicitly supply the corresponding workload keys instead of deriving expectations from the observed results. Failed and incomplete runs still generate reports; an interrupted or incomplete workload is never given a success icon.
