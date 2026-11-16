@@ -1,0 +1,132 @@
+name: Copilot first-ready review
+run-name: "Copilot first-ready review for PR #${{ github.event.pull_request.number }}"
+
+on:
+  pull_request_target:
+    types: [ready_for_review]
+
+permissions:
+  pull-requests: write
+
+concurrency:
+  group: copilot-first-ready-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  request-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Request one additional Copilot review
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          retries: 0
+          script: |
+            const number = context.payload.pull_request.number;
+            const repo = context.repo;
+            const marker = '<!-- lakebench-copilot-first-ready:v1 -->';
+            const current = await github.rest.pulls.get({...repo, pull_number: number});
+            if (current.data.state !== 'open' || current.data.draft) {
+              core.notice('The PR is no longer open and ready; no review requested.');
+              return;
+            }
+
+            const timeline = await github.graphql(`
+              query($owner: String!, $repo: String!, $number: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $number) {
+                    timelineItems(first: 2, itemTypes: [READY_FOR_REVIEW_EVENT]) {
+                      nodes { ... on ReadyForReviewEvent { id } }
+                    }
+                  }
+                }
+              }
+            `, {...repo, number});
+            const events = timeline.repository.pullRequest.timelineItems.nodes;
+            if (events.length === 0) {
+              throw new Error('The ready transition is not visible in the timeline; no review requested.');
+            }
+            if (events.length > 1) {
+              core.notice('This is not the first ready transition; request any further reviews manually.');
+              return;
+            }
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              ...repo, issue_number: number, per_page: 100,
+            });
+            const previous = comments.find(comment =>
+              comment.user?.login === 'github-actions[bot]' &&
+              comment.user?.type === 'Bot' &&
+              comment.body?.startsWith(marker)
+            );
+            if (previous) {
+              if (previous.body.includes('\nStatus: requested\n')) {
+                core.notice('The first-ready review was already requested; not requesting another.');
+                return;
+              }
+              throw new Error(
+                'An earlier first-ready attempt is incomplete or failed. Inspect its workflow run ' +
+                'and request a review manually; refusing a potentially duplicate paid request.'
+              );
+            }
+
+            const body = (status, detail) =>
+              `${marker}\nStatus: ${status}\n\n${detail}\n\n` +
+              'This records the one-time review at the first draft-to-ready transition. ' +
+              'It is not a review or an approval. Further reviews can be requested manually.';
+            const reservation = await github.rest.issues.createComment({
+              ...repo,
+              issue_number: number,
+              body: body('requesting', 'Preparing the additional Copilot review request.'),
+            });
+            const update = (status, detail) => github.rest.issues.updateComment({
+              ...repo, comment_id: reservation.data.id, body: body(status, detail),
+            });
+
+            try {
+              for (let attempt = 0; attempt <= 10; attempt++) {
+                const latest = await github.rest.pulls.get({...repo, pull_number: number});
+                if (latest.data.state !== 'open' || latest.data.draft) {
+                  await update('cancelled', 'The PR stopped being open and ready; no review requested.');
+                  core.notice('The PR stopped being open and ready; no review requested.');
+                  return;
+                }
+                let response;
+                try {
+                  response = await github.request(
+                    'POST /repos/{owner}/{repo}/pulls/{pull_number}/copilot-code-review',
+                    {
+                      ...repo,
+                      pull_number: number,
+                      review_effort: 'balanced',
+                      headers: {'X-GitHub-Api-Version': '2026-03-10'},
+                    },
+                  );
+                } catch (error) {
+                  if (error.status !== 409) throw error;
+                  if (attempt === 10) {
+                    throw new Error('A Copilot review is still pending after five minutes.');
+                  }
+                  core.info('Waiting for the pending review before requesting the additional review.');
+                  await new Promise(resolve => setTimeout(resolve, 30000));
+                  continue;
+                }
+                if (response.status !== 201 || response.data.state !== 'PENDING') {
+                  throw new Error('GitHub did not confirm a new pending Copilot review.');
+                }
+                await update('requested', 'GitHub accepted the additional Copilot review request.');
+                core.info('Requested the additional Copilot review at Balanced effort.');
+                return;
+              }
+            } catch (error) {
+              core.error(
+                `First-ready review failed: ${error.status ?? ''} ` +
+                `${error.response?.data?.failure_reason ?? error.message}`
+              );
+              await update(
+                'failed',
+                'The request could not be confirmed. Inspect the workflow logs and request a review ' +
+                'manually if needed. Automatic reruns will not issue another potentially paid request.',
+              );
+              throw error;
+            }
