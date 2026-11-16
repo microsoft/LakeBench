@@ -6,7 +6,7 @@ from importlib.metadata import version
 from typing import Dict, Optional, Type
 
 from ..engines.base import BaseEngine
-from ..utils.timer import timer
+from ..utils.timer import Timer
 
 logger = logging.getLogger(__name__)
 
@@ -139,8 +139,7 @@ class BaseBenchmark(ABC):
             "total_cores": self.engine.get_total_cores(),
             "compute_size": self.engine.get_compute_size(),
         }
-        self.timer = timer
-        self.timer.clear_results()
+        self.timer = Timer()
         self.results = []
         self.mode: str = None
 
