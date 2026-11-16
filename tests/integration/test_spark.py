@@ -66,7 +66,7 @@ def _engine(tmp_path, name):
 
     schema_uri = str(tmp_path / name).replace("\\", "/") + "/"
     try:
-        return Spark(schema_name=name, schema_uri=schema_uri)
+        return Spark(schema_name=name, schema_uri=schema_uri, allow_destructive_reset=True)
     except Exception as e:
         return e  # caller checks isinstance(engine, Exception)
 

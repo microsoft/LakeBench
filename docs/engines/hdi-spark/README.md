@@ -22,8 +22,11 @@ HDInsight supplies PySpark. Install LakeBench on the cluster or notebook:
 ```python
 from lakebench.engines import HDISpark
 
-engine = HDISpark(schema_name="lakebench")
+engine = HDISpark(schema_name="lakebench", allow_destructive_reset=True)
 ```
+
+The whole schema and its contents must be dedicated disposable output, separate
+from input/results. Read the [shared reset boundary](../README.md#destructive-reset-boundary-compatibility-change).
 
 ## Configuration
 

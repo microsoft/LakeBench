@@ -20,6 +20,8 @@ class Daft(BaseEngine):
     cost_per_hour : float, optional
         Total hourly compute cost, mutually exclusive with
         ``cost_per_vcore_hour``.
+    allow_destructive_reset : bool, optional
+        Explicitly dedicate the target to destructive benchmark resets.
 
     Notes
     -----
@@ -44,6 +46,7 @@ class Daft(BaseEngine):
         schema_or_working_directory_uri: str,
         cost_per_vcore_hour: Optional[float] = None,
         cost_per_hour: Optional[float] = None,
+        allow_destructive_reset: bool = False,
     ):
         """
         Parameters
@@ -58,7 +61,7 @@ class Daft(BaseEngine):
             The total hourly cost for the compute runtime. Mutually exclusive with ``cost_per_vcore_hour``.
         """
 
-        super().__init__(schema_or_working_directory_uri)
+        super().__init__(schema_or_working_directory_uri, allow_destructive_reset=allow_destructive_reset)
         import daft
         from daft.io import AzureConfig, IOConfig
 

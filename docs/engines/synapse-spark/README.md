@@ -25,8 +25,12 @@ from lakebench.engines import SynapseSpark
 engine = SynapseSpark(
     schema_name="lakebench",
     schema_uri="abfss://container@account.dfs.core.windows.net/lakebench",
+    allow_destructive_reset=True,
 )
 ```
+
+The whole schema and its contents must be dedicated disposable output, separate
+from input/results. Read the [shared reset boundary](../README.md#destructive-reset-boundary-compatibility-change).
 
 ## Configuration
 

@@ -17,7 +17,7 @@ pytest.importorskip("deltalake", reason="requires lakebench[polars] extra")
 def _engine(tmp_path, name):
     from lakebench.engines import Polars
 
-    return Polars(schema_or_working_directory_uri=str(tmp_path / name))
+    return Polars(schema_or_working_directory_uri=str(tmp_path / name), allow_destructive_reset=True)
 
 
 @pytest.mark.integration

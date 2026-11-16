@@ -34,7 +34,7 @@ pytestmark = pytest.mark.skipif(
 def _engine(tmp_path, name):
     from lakebench.engines import Daft
 
-    return Daft(schema_or_working_directory_uri=str(tmp_path / name))
+    return Daft(schema_or_working_directory_uri=str(tmp_path / name), allow_destructive_reset=True)
 
 
 @pytest.mark.integration

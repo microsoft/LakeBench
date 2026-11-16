@@ -23,6 +23,8 @@ class Sail(BaseEngine):
         ``cost_per_vcore_hour``.
     storage_options : dict, optional
         Filesystem credentials and options passed to Delta Lake clients.
+    allow_destructive_reset : bool, optional
+        Explicitly dedicate the target to destructive benchmark resets.
 
     Notes
     -----
@@ -51,6 +53,7 @@ class Sail(BaseEngine):
         cost_per_vcore_hour: Optional[float] = None,
         cost_per_hour: Optional[float] = None,
         storage_options: Optional[dict[str, Any]] = None,
+        allow_destructive_reset: bool = False,
     ):
         """
         Parameters
@@ -68,7 +71,7 @@ class Sail(BaseEngine):
             will attempt to read from environment variables depeneding on the compute runtime.
         """
 
-        super().__init__(schema_or_working_directory_uri, storage_options)
+        super().__init__(schema_or_working_directory_uri, storage_options, allow_destructive_reset)
         from pysail.spark import SparkConnectServer
         from pyspark.sql import SparkSession
 

@@ -162,6 +162,18 @@ class BaseBenchmark(ABC):
     def run(self):
         pass
 
+    def _storage_reset_protected_uris(self):
+        return tuple(
+            dict.fromkeys(
+                uri
+                for uri in (self.input_folder_uri, self.input_parquet_folder_uri, self.result_table_uri)
+                if uri is not None
+            )
+        )
+
+    def _validate_storage_reset(self):
+        self.engine.validate_storage_reset(self._storage_reset_protected_uris())
+
     def _log_benchmark_summary(self, result_start_index: int = 0):
         run_results = self.results[result_start_index:]
         total = len(run_results)

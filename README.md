@@ -169,6 +169,13 @@ pip install lakebench
 Select the optional dependency group and any non-Python prerequisites from the [engine documentation](docs/engines/README.md). Engines validate their required modules when constructed and raise `MissingDependenciesError` with an installation hint when dependencies are unavailable.
 
 ## Example Usage
+**Storage safety:** benchmark loads and ELTBench require
+`allow_destructive_reset=True` on the engine, declaring its output directory or
+schema dedicated and disposable. Input, output and result locations must not
+overlap. Default/shared schemas and storage roots cannot be reset. See the
+[reset boundary and repeat-run example](docs/engines/README.md#destructive-reset-boundary-compatibility-change)
+before configuring an engine. Query-only runs do not reset storage.
+
 To run any LakeBench benchmark, first do a one time generation of the data required for the benchmark and scale of interest. LakeBench provides datagen classes to quickly generate parquet datasets required by the benchmarks.
 
 ### Data Generation

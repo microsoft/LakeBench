@@ -7,6 +7,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Mapping, Optional, Sequence
 
+from ..utils.storage_reset import validate_metadata_storage
 from .base import BaseEngine
 from .resources.databricks_pricing import (
     DatabricksPricingError,
@@ -61,6 +62,8 @@ class DatabricksSQLWarehouse(BaseEngine):
         Explicit serverless price per DBU.
     compute_stats_all_cols : bool, optional
         Deprecated compatibility option for post-load column statistics.
+    allow_destructive_reset : bool, optional
+        Explicitly dedicate the target to destructive benchmark resets.
 
     Notes
     -----
@@ -90,8 +93,9 @@ class DatabricksSQLWarehouse(BaseEngine):
         cost_per_hour: Optional[float] = None,
         dbu_rate: Optional[float] = None,
         compute_stats_all_cols: bool = False,
+        allow_destructive_reset: bool = False,
     ):
-        super().__init__(schema_or_working_directory_uri=schema_uri)
+        super().__init__(schema_or_working_directory_uri=schema_uri, allow_destructive_reset=allow_destructive_reset)
 
         if compute_stats_all_cols:
             warnings.warn(
@@ -303,11 +307,40 @@ class DatabricksSQLWarehouse(BaseEngine):
             return None
         return str(result["sku_name"].iloc[0])
 
-    def create_schema_if_not_exists(self, drop_before_create: bool = True):
+    def create_schema_if_not_exists(self, drop_before_create: bool = False, *, protected_uris: Sequence[str] = ()):
         location = f"LOCATION '{self.schema_uri}'" if self.schema_uri is not None else ""
         if drop_before_create:
-            self.execute_sql_statement(f"DROP SCHEMA IF EXISTS {self.full_catalog_schema_reference} CASCADE")
-        self.execute_sql_statement(f"CREATE SCHEMA IF NOT EXISTS {self.full_catalog_schema_reference} {location}")
+            self.validate_storage_reset(protected_uris)
+            schemas = self.execute_sql_query(f"SHOW SCHEMAS IN `{self.catalog_name}`", return_data=True)
+            if any(
+                str(row[0]).casefold() == self.schema_name.casefold()
+                for row in schemas.itertuples(index=False, name=None)
+            ):
+                details = self.execute_sql_query(
+                    f"DESCRIBE SCHEMA EXTENDED {self.full_catalog_schema_reference}", return_data=True
+                )
+                validate_metadata_storage(details.itertuples(index=False, name=None), protected_uris)
+                tables = self.execute_sql_query(
+                    f"SHOW TABLES IN {self.full_catalog_schema_reference}", return_data=True
+                )
+                for row in tables.itertuples(index=False, name=None):
+                    if row[2]:
+                        continue
+                    table = str(row[1]).replace("`", "``")
+                    details = self.execute_sql_query(
+                        f"DESCRIBE TABLE EXTENDED {self.full_catalog_schema_reference}.`{table}`", return_data=True
+                    )
+                    validate_metadata_storage(
+                        details.itertuples(index=False, name=None), protected_uris, allow_view=True
+                    )
+                self.execute_sql_statement(f"DROP SCHEMA IF EXISTS {self.full_catalog_schema_reference} CASCADE")
+        exists_clause = "" if drop_before_create else " IF NOT EXISTS"
+        self.execute_sql_statement(f"CREATE SCHEMA{exists_clause} {self.full_catalog_schema_reference} {location}")
+        if drop_before_create:
+            details = self.execute_sql_query(
+                f"DESCRIBE SCHEMA EXTENDED {self.full_catalog_schema_reference}", return_data=True
+            )
+            validate_metadata_storage(details.itertuples(index=False, name=None), protected_uris)
         self.execute_sql_statement(f"USE {self.full_catalog_schema_reference}")
 
     def _create_empty_table(self, table_name: Optional[str], ddl: str):

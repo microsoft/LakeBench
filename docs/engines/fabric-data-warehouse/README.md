@@ -27,9 +27,14 @@ from lakebench.engines import FabricDataWarehouse
 engine = FabricDataWarehouse(
     warehouse_name="warehouse",
     warehouse_server="xxxxx.datawarehouse.fabric.microsoft.com",
-    schema_name="dbo",
+    schema_name="lakebench",
+    allow_destructive_reset=True,
 )
 ```
+
+The whole schema and its contents must be dedicated disposable output, separate
+from input/results. `dbo` and other default/shared schemas cannot be reset. Read
+the [shared reset boundary](../README.md#destructive-reset-boundary-compatibility-change).
 
 Warehouse and schema names cannot contain spaces.
 
