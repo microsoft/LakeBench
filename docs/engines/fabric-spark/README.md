@@ -31,8 +31,12 @@ from lakebench.engines import FabricSpark
 engine = FabricSpark(
     lakehouse_name="lakehouse",
     lakehouse_schema_name="lakebench",
+    allow_destructive_reset=True,
 )
 ```
+
+The whole schema and its contents must be dedicated disposable output, separate
+from input/results. Read the [shared reset boundary](../README.md#destructive-reset-boundary-compatibility-change).
 
 ## Configuration
 

@@ -23,8 +23,12 @@ from lakebench.engines import Sail
 
 engine = Sail(
     schema_or_working_directory_uri="file:///tmp/lakebench",
+    allow_destructive_reset=True,
 )
 ```
+
+This must be dedicated disposable output, separate from input/results. Read the
+[shared reset boundary](../README.md#destructive-reset-boundary-compatibility-change) before loading data.
 
 ## Configuration
 

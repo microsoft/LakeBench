@@ -149,7 +149,9 @@ class ELTBench(BaseBenchmark):
 
     def _prepare_schema(self, tables: list[str]):
 
-        self.engine.create_schema_if_not_exists(drop_before_create=True)
+        self.engine.create_schema_if_not_exists(
+            drop_before_create=True, protected_uris=self._storage_reset_protected_uris()
+        )
         self.engine.create_external_location(self.input_parquet_folder_uri)
 
         engine_class_name = self.engine.__class__.__name__.lower()
@@ -213,6 +215,7 @@ class ELTBench(BaseBenchmark):
         tables = ["store_sales", "date_dim", "store", "item", "customer"]
 
         self.mode = "light"
+        self._validate_storage_reset()
         if self.engine.SUPPORTS_SCHEMA_PREP:
             self._prepare_schema(tables=tables)
 

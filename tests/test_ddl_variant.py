@@ -23,6 +23,7 @@ class _StubEngine(BaseEngine):
         self.extended_engine_metadata = {}
         self.storage_options = {}
         self.schema_or_working_directory_uri = "/tmp/test"
+        self.allow_destructive_reset = True
         self.fs = None
         self.runtime = "local_unknown"
         self.operating_system = self._detect_os()

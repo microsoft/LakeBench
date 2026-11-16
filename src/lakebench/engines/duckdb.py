@@ -23,6 +23,8 @@ class DuckDB(BaseEngine):
         ``cost_per_vcore_hour``.
     storage_options : dict, optional
         Filesystem credentials and options passed to Delta Lake clients.
+    allow_destructive_reset : bool, optional
+        Explicitly dedicate the target to destructive benchmark resets.
 
     Notes
     -----
@@ -48,6 +50,7 @@ class DuckDB(BaseEngine):
         cost_per_vcore_hour: Optional[float] = None,
         cost_per_hour: Optional[float] = None,
         storage_options: Optional[dict[str, Any]] = None,
+        allow_destructive_reset: bool = False,
     ):
         """
         Parameters
@@ -65,10 +68,11 @@ class DuckDB(BaseEngine):
             will attempt to read from environment variables depeneding on the compute runtime.
         """
 
-        super().__init__(schema_or_working_directory_uri, storage_options)
+        super().__init__(schema_or_working_directory_uri, storage_options, allow_destructive_reset)
         import duckdb
 
         self.duckdb = duckdb.connect()
+        self._registered_delta_views = set()
         self.deltars = DeltaRs()
         self.catalog_name = None
         self.schema_name = None
@@ -85,6 +89,9 @@ class DuckDB(BaseEngine):
         )
 
     def _create_empty_table(self, table_name: str, ddl: str):
+        if table_name in self._registered_delta_views:
+            self.duckdb.sql(f"DROP VIEW IF EXISTS {table_name}")
+            self._registered_delta_views.remove(table_name)
         if not ddl.strip().startswith("CREATE OR REPLACE TABLE"):
             ddl = ddl.replace("CREATE TABLE", "CREATE OR REPLACE TABLE")
         # Create in memory table
@@ -196,6 +203,7 @@ class DuckDB(BaseEngine):
             CREATE OR REPLACE VIEW {table_name} 
             AS SELECT * FROM delta_scan('{posixpath.join(self.schema_or_working_directory_uri, table_name)}')
         """)
+        self._registered_delta_views.add(table_name)
 
     def execute_sql_query(self, query: str, context_decorator: Optional[str] = None):
         """
