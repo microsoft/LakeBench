@@ -1,8 +1,8 @@
 """
 Integration tests: all benchmarks with the Spark engine (local mode + Delta Lake).
 
-Query failures are warnings; the test fails only if ALL loads or ALL queries fail.
-JVM crashes (Windows) are caught and reported as warnings.
+All declared loads and queries must complete successfully.
+JVM crashes are retained in the report and fail the test.
 
 Run with:
     uv sync --group dev --extra spark --extra tpcds_datagen --extra tpch_datagen
@@ -13,7 +13,7 @@ import warnings
 
 import pytest
 
-from tests.integration.conftest import report_and_assert, run_benchmark
+from tests.integration.conftest import expected_workload, report_and_assert, run_benchmark
 
 pytest.importorskip("pyspark", reason="requires lakebench[spark] extra")
 
@@ -94,8 +94,9 @@ def test_tpch_spark(tpch_parquet_dir, tmp_path):
 
     engine = _engine(tmp_path, "tpch")
     results, exc = _run(engine, TPCH, tpch_parquet_dir, "load_and_query", "TPC-H", scale_factor=0.1)
-    if results is not None:
-        report_and_assert(results, "TPC-H", "Spark", exc, min_pass_rate=1.0)
+    report_and_assert(
+        results, "TPC-H", "Spark", exc, expected_results=expected_workload(TPCH, "load_and_query"), min_pass_rate=1.0
+    )
 
 
 @pytest.mark.integration
@@ -104,8 +105,9 @@ def test_tpcds_spark(tpcds_parquet_dir, tmp_path):
 
     engine = _engine(tmp_path, "tpcds")
     results, exc = _run(engine, TPCDS, tpcds_parquet_dir, "load_and_query", "TPC-DS", scale_factor=0.1)
-    if results is not None:
-        report_and_assert(results, "TPC-DS", "Spark", exc, min_pass_rate=1.0)
+    report_and_assert(
+        results, "TPC-DS", "Spark", exc, expected_results=expected_workload(TPCDS, "load_and_query"), min_pass_rate=1.0
+    )
 
 
 @pytest.mark.integration
@@ -114,8 +116,14 @@ def test_clickbench_spark(clickbench_parquet_dir, tmp_path):
 
     engine = _engine(tmp_path, "clickbench")
     results, exc = _run(engine, ClickBench, clickbench_parquet_dir, "load_and_query", "ClickBench")
-    if results is not None:
-        report_and_assert(results, "ClickBench", "Spark", exc, min_pass_rate=1.0)
+    report_and_assert(
+        results,
+        "ClickBench",
+        "Spark",
+        exc,
+        expected_results=expected_workload(ClickBench, "load_and_query"),
+        min_pass_rate=1.0,
+    )
 
 
 @pytest.mark.integration
@@ -124,5 +132,6 @@ def test_eltbench_spark(tpcds_parquet_dir, tmp_path):
 
     engine = _engine(tmp_path, "eltbench")
     results, exc = _run(engine, ELTBench, tpcds_parquet_dir, "light", "ELTBench", scale_factor=0.1)
-    if results is not None:
-        report_and_assert(results, "ELTBench", "Spark", exc, min_pass_rate=1.0)
+    report_and_assert(
+        results, "ELTBench", "Spark", exc, expected_results=expected_workload(ELTBench, "light"), min_pass_rate=1.0
+    )
