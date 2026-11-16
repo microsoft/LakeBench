@@ -64,8 +64,8 @@ fabric_warehouse = ["lakebench[fabric_data_warehouse]"]
 fabricwarehouse = ["lakebench[fabric_data_warehouse]"]
 
 [project.urls]
-github = "https://github.com/mwc360/LakeBench"
-Issues = "https://github.com/mwc360/LakeBench/issues"
+github = "https://github.com/microsoft/LakeBench"
+Issues = "https://github.com/microsoft/LakeBench/issues"
 
 [build-system]
 requires = ["hatchling"]
