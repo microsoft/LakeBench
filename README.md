@@ -172,7 +172,7 @@ Select the optional dependency group and any non-Python prerequisites from the [
 To run any LakeBench benchmark, first do a one time generation of the data required for the benchmark and scale of interest. LakeBench provides datagen classes to quickly generate parquet datasets required by the benchmarks.
 
 ### Data Generation
-- **TPC-H** and **TPC-DS** data generation is blazing fast via a pinned build of the unified Rust `tpcgen-cli` from the [tpcgen-rs](https://github.com/datafusion-contrib/tpcgen-rs) project. The temporary Windows x86_64 and manylinux 2.17 x86_64 executables are committed under `native/tpcgen`. LakeBench will migrate to the official `tpcgen-cli` Python package after it is released on PyPI.
+- **TPC-H** and **TPC-DS** data generation is blazing fast via the unified Rust [`tpcgen-cli`](https://pypi.org/project/tpcgen-cli/) from the [tpcgen-rs](https://github.com/datafusion-contrib/tpcgen-rs) project, installed by the `tpch_datagen` / `tpcds_datagen` extras.
 
     _The below are generation runtimes on a 64 v-core VM writing to OneLake. Scale factors below 1000 can easily be generated on a 2 v-core machine._
     | Scale Factor | TPC-H Duration (hh:mm:ss)| TPC-DS Duration (hh:mm:ss)|
@@ -207,11 +207,9 @@ datagen.run()
 ```
 
 _Notes:_
-- By default, each table is split automatically using its estimated total compressed size: 128 MiB files below 10 GiB, 256 MiB below 1 TiB, 512 MiB below 5 TiB, and 1 GiB for larger tables. Estimated physical size is calculated directly from each table's SF1000 baseline for any supported scale factor; part counts are always selected automatically.
-- `target_row_group_size_mb` is an on-disk compressed-size target. LakeBench converts it to the uncompressed-byte value expected by `tpcgen-cli` using benchmark- and table-specific ZSTD(1) or Snappy compression ratios measured from SF10 output. All `ZSTD(N)` levels use the ZSTD(1) measurements for planning while the requested compression level is passed through unchanged. Automatic part counts are adjusted for the selected codec. The row-group conversion includes a 5% planning margin for upstream's estimated bytes-per-source-row model. Other compressed codecs require an explicit `compression_factor`, which is used for both row groups and file estimates. TPC-DS generation uses the upstream C-reference compatibility mode.
-- Output remains organized as `<root>/<table>/*.parquet`. Filenames include the one-based part number and codec for quick inspection, for example `lineitem/lineitem-00001.zstd.parquet` or `store_sales/store_sales-00001.zstd.parquet`.
-- To use the legacy implementation, install `lakebench[tpcds_duckdb_datagen]` on Python 3.10+ and pass `backend="duckdb"`.- Editable/source installations use the matching vendored binary from
-- `output_format="native"` emits the TPC generators' pipe-delimited text instead of Parquet, matching what the official `dsdgen`/`dbgen` tools produce. TPC-DS native format support is currently in preview. See [Native TPC Generator Format](#native-tpc-generator-format-dat--tbl) below.- Editable/source installations use the matching vendored binary from `native/tpcgen`; installed wheels always use their packaged binary.
+- Output is written by `tpcgen-cli` as `<root>/<table>/<table>.<part>.parquet`, for example `lineitem/lineitem.1.parquet`. Each table is split by its estimated size into 128 MiB files below 10 GiB, 256 MiB below 1 TiB, 512 MiB below 5 TiB, and 1 GiB beyond; sizes are measured for ZSTD(1) and native output, so other codecs produce proportionally larger files. Small TPC-DS tables, and TPC-H `nation` and `region`, are always a single file.
+- `compression` (default `ZSTD(1)`) and `target_row_group_size_mb` are passed to `tpcgen-cli` as `--compression` and `--row-group-bytes`. `target_row_group_size_mb` is the approximate *uncompressed* row-group size; the defaults (320 for TPC-H, 176 for TPC-DS) give the largest tables ~128 MiB ZSTD(1) row groups on disk.
+- `output_format="native"` emits the TPC generators' pipe-delimited text instead of Parquet, matching what the official `dsdgen`/`dbgen` tools produce. TPC-DS native format support is currently in preview. See [Native TPC Generator Format](#native-tpc-generator-format-dat--tbl) below.
 - Large generations targeting mounted filesystems can set `num_threads=8` or `num_threads=16` to limit concurrent file creation and atomic renames. The default remains all available CPU cores.
 - The ClickBench dataset (only 1 size) should download with partitioned files in ~ 1 minute and ~ 6 minutes as a single file. 
 
@@ -240,14 +238,13 @@ benchmark.run(mode='load_and_query')
 ```
 
 _Notes:_
-- Files are named exactly as the official tools name them, one folder per table. A single-part table uses the serial name `<table>.tbl` / `<table>.dat`. A multi-part table uses the parallel names: `dbgen`'s `<table>.tbl.<step>` for TPC-H and `dsdgen`'s `<table>_<child>_<parallel>.dat` for TPC-DS.
-- Neither `dsdgen` nor `dbgen` splits output on its own; parts exist only because the operator runs the tool once per chunk, which is the normal way to generate large scale factors. LakeBench picks the part count for you from the estimated table size, so bigger scale factors naturally produce more parts, matching what a parallel `dsdgen`/`dbgen` run would leave on disk.
+- Files are written one folder per table as `<table>/<table>.<part>.tbl` / `.dat`. Loading also accepts the official `dbgen`/`dsdgen` parallel names (`<table>.tbl.<step>`, `<table>_<child>_<parallel>.dat`).
 - The format carries no header and no types, so LakeBench derives each reader's schema from the benchmark's resolved DDL. As a result, native loads are always typed exactly as the DDL declares. The generator's Parquet output does not always agree with the DDL on integer width (for example TPC-H `n_nationkey` is `int64` in Parquet but `integer` in the DDL), so on engines that do not pre-create tables the two formats can differ in integer width. Values are identical.
 - Every generated line ends with a trailing delimiter. LakeBench reads one extra trailing column and drops it, so no reader needs a lenient mode.
 - Empty fields are read as `NULL`, and quoting is disabled so `"` is treated as ordinary data.
-- Parquet-only options (`target_row_group_size_mb`, `compression`, and `compression_factor`) are rejected with `output_format="native"`. Automatic part counts use per-table native-to-uncompressed-Parquet size ratios measured at SF1.
+- Parquet-only options (`target_row_group_size_mb` and `compression`) are rejected with `output_format="native"`.
 - Native-input support varies by engine; see the selected [engine page](docs/engines/README.md).
-- `output_format="native"` requires `backend="rust"`. With the currently bundled generator, `tpcgen-cli tpcds dat` has no thread option, so TPC-DS native generation runs single-threaded regardless of the available core count and rejects `num_threads`. Part count controls output splitting but does not make the current TPC-DS native run parallel. `tpcgen-cli tpch tbl` does accept `--num-threads`, so TPC-H native honours it exactly like Parquet (defaulting to all available CPU cores).
+- `num_threads` applies to native output exactly as it does to Parquet (defaulting to all available CPU cores).
 
 #### Naming the Input Location
 
@@ -371,7 +368,7 @@ LakeBench is released under the MIT License (see [`LICENSE`](LICENSE)). It also 
 Most notably:
 
 - **ClickBench** queries and schema come from [ClickHouse/ClickBench](https://github.com/ClickHouse/ClickBench) (Alexey Milovidov and the ClickHouse team, 2022), which is published under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). The queries are vendored verbatim from a pinned upstream commit; provenance and hashes are recorded in [`PROVENANCE.md`](src/lakebench/benchmarks/clickbench/resources/queries/canonical/PROVENANCE.md) and `source_manifest.json` alongside them. If the NonCommercial or ShareAlike terms matter for your use, review them before redistributing LakeBench or building on it.
-- **tpcgen-rs** is bundled as a prebuilt binary in platform wheels under Apache 2.0.
+- **tpcgen-rs** is installed from PyPI as `tpcgen-cli` (Apache 2.0) by the datagen extras; it is not redistributed.
 - **TPC-H / TPC-DS** tools kits, templates, and generator executables are *not* redistributed; only generated query text and a reproducibility manifest are checked in. TPC-H and TPC-DS are trademarks of the [Transaction Processing Performance Council](https://www.tpc.org), and LakeBench results are not audited, endorsed, or comparable to published TPC results.
 
 

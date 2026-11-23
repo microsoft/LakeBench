@@ -67,12 +67,12 @@ their own legal counsel or contact the upstream project.
 
 - **Project:** tpcgen-rs — TPC data generation CLI
 - **Upstream:** https://github.com/datafusion-contrib/tpcgen-rs
-- **Build source:** https://github.com/mwc360/tpcgen-rs
-- **License:** Apache License 2.0 — see `native/tpcgen/LICENSE.tpcgen-rs`
+- **Package:** [`tpcgen-cli`](https://pypi.org/project/tpcgen-cli/) on PyPI
+- **License:** Apache License 2.0
 
-Platform wheels bundle a prebuilt `tpcgen-cli` binary under `native/tpcgen/`.
-Per-platform build provenance, including upstream commit and binary checksum, is
-recorded in `native/tpcgen/<platform>/provenance.json`.
+LakeBench does not redistribute `tpcgen-cli`. The optional `tpch_datagen` and
+`tpcds_datagen` extras declare a dependency on the published `tpcgen-cli`
+package, which is installed from PyPI under its own license.
 
 ---
 

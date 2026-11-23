@@ -1,111 +1,55 @@
-from typing import List, Optional
+from bisect import bisect_right
 
-from ._tpc import _TPCDataGenerator
-from ._tpcds_rs import _TPCDSRsDataGenerator
-
-
-class _TPCDSDuckDBDataGenerator(_TPCDataGenerator):
-    GEN_UTIL = "dsdgen"
-    GEN_TYPE = "tpcds"
+from ._tpcgen import TpcgenDataGenerator
 
 
-class TPCDSDataGenerator:
-    """
-    Generate TPC-DS data with the bundled Rust tpcgen-cli executable or the
-    legacy DuckDB generator.
+class TPCDSDataGenerator(TpcgenDataGenerator):
+    """Generate TPC-DS data with ``tpcgen-cli`` (``pip install lakebench[tpcds_datagen]``)."""
 
-    Parameters
-    ----------
-    scale_factor : float
-        The scale factor for the data generation, which determines the size of the generated dataset.
-    target_folder_uri : str
-        The folder path where the generated Parquet data will be stored. A folder for each table will be created.
-    target_row_group_size_mb : int, default=128
-        Target on-disk size of Parquet row groups in megabytes. The Rust
-        generator scales the upstream uncompressed-byte target by the
-        compression factor.
-    compression : str, default="ZSTD(1)"
-        Parquet compression used by the Rust backend.
-    table_list : list of str, optional
-        TPC-DS tables to generate. The Rust backend generates all 24 tables by default.
-    num_threads : int, optional
-        Rust worker-thread count. Defaults to all available CPU cores. Use a
-        lower value such as 8 or 16 for large generations targeting mounted
-        filesystems. Rejected when ``output_format="native"``, because
-        the currently bundled ``tpcgen-cli tpcds dat`` has no thread option
-        and runs single-threaded regardless of available cores. Native part
-        count controls output splitting, not parallel execution.
-    backend : {"rust", "duckdb"}, default="rust"
-        Data generator backend. DuckDB is retained as an explicit legacy fallback.
-    compression_factor : float, optional
-        Ratio of uncompressed to on-disk Parquet bytes used to translate the
-        requested row-group target and estimate physical table size. Measured
-        ZSTD levels use per-table factors measured with ``ZSTD(1)`` and
-        ``SNAPPY`` uses its own measured factors; other compressed codecs
-        require an explicit value.
-    output_format : {"parquet", "native"}, default="parquet"
-        ``"native"`` emits the generator's pipe-delimited ``.dat`` files, the
-        same layout the official ``dsdgen`` produces. TPC-DS native format
-        support is currently in preview. Parquet-only options
-        (``target_row_group_size_mb``, ``compression``,
-        ``compression_factor``) are rejected in that mode. Requires
-        ``backend="rust"``.
-    Methods
-    -------
-    run()
-        Generates TPC-DS data in Parquet format based on the input scale factor and writes it to the target folder.
-    """
+    BENCHMARK = "tpcds"
+    NATIVE_FORMAT = "dat"
+    ROW_GROUP_MIB = 176
+    # Measured with scripts/measure_tpcgen_sizes.py.
+    SF10_SIZE_MIB = {
+        "call_center": (0.0, 0.0),
+        "catalog_page": (0.5, 1.6),
+        "catalog_returns": (76.8, 211.4),
+        "catalog_sales": (786.6, 2897.2),
+        "customer": (20.0, 63.8),
+        "customer_address": (3.8, 26.4),
+        "customer_demographics": (5.5, 76.9),
+        "date_dim": (1.6, 9.8),
+        "household_demographics": (0.0, 0.1),
+        "income_band": (0.0, 0.0),
+        "inventory": (418.6, 2635.0),
+        "item": (6.5, 27.5),
+        "promotion": (0.0, 0.1),
+        "reason": (0.0, 0.0),
+        "ship_mode": (0.0, 0.0),
+        "store": (0.0, 0.0),
+        "store_returns": (111.7, 322.9),
+        "store_sales": (962.5, 3813.7),
+        "time_dim": (0.9, 4.9),
+        "warehouse": (0.0, 0.0),
+        "web_page": (0.0, 0.0),
+        "web_returns": (40.7, 97.4),
+        "web_sales": (358.2, 1441.4),
+        "web_site": (0.0, 0.0),
+    }
+    #: Row counts, in millions, at the TPC-DS defined scale factors for the tables that grow
+    #: sublinearly and can exceed one million rows. Other tables grow linearly, or stay under
+    #: one million rows, which tpcgen-cli never splits.
+    DEFINED_SCALE_FACTORS = (1, 10, 100, 300, 1000, 3000, 10000, 30000, 100000)
+    SUBLINEAR_ROWS_M = {
+        "customer": (0.1, 0.5, 2, 5, 12, 30, 65, 80, 100),
+        "customer_address": (0.05, 0.25, 1, 2.5, 6, 15, 32.5, 40, 50),
+        "customer_demographics": (1.9208,) * 9,
+        "inventory": (11.745, 133.11, 399.33, 585.684, 783, 1033.56, 1311.525, 1627.857, 1965.338),
+    }
 
-    def __init__(
-        self,
-        scale_factor: float,
-        target_folder_uri: str,
-        target_row_group_size_mb: Optional[int] = None,
-        compression: Optional[str] = None,
-        table_list: Optional[List[str]] = None,
-        num_threads: Optional[int] = None,
-        backend: str = "rust",
-        compression_factor: Optional[float] = None,
-        output_format: str = "parquet",
-    ) -> None:
-        self.scale_factor = scale_factor
-        self.target_folder_uri = target_folder_uri
-        self.target_row_group_size_mb = target_row_group_size_mb
-        self.backend = backend
-        self.output_format = output_format
-
-        if backend == "rust":
-            self._generator = _TPCDSRsDataGenerator(
-                scale_factor=scale_factor,
-                target_folder_uri=target_folder_uri,
-                target_row_group_size_mb=target_row_group_size_mb,
-                compression=compression,
-                table_list=table_list,
-                num_threads=num_threads,
-                compression_factor=compression_factor,
-                output_format=output_format,
-            )
-        elif backend == "duckdb":
-            if output_format != "parquet":
-                raise ValueError("output_format='native' is supported only by backend='rust'.")
-            rust_options = {
-                "compression": compression,
-                "table_list": table_list,
-                "num_threads": num_threads,
-                "compression_factor": compression_factor,
-            }
-            specified_options = [name for name, value in rust_options.items() if value is not None]
-            if specified_options:
-                raise ValueError(
-                    "The following options are supported only by backend='rust': " + ", ".join(specified_options)
-                )
-            self._generator = _TPCDSDuckDBDataGenerator(
-                scale_factor=scale_factor,
-                target_folder_uri=target_folder_uri,
-                target_row_group_size_mb=128 if target_row_group_size_mb is None else target_row_group_size_mb,
-            )
-        else:
-            raise ValueError("backend must be either 'rust' or 'duckdb'.")
-
-    def run(self) -> None:
-        self._generator.run()
+    def _growth(self, table: str) -> float:
+        rows = self.SUBLINEAR_ROWS_M.get(table)
+        if rows is None:
+            return super()._growth(table)
+        # Use the nearest defined scale factor at or below this one.
+        return rows[max(bisect_right(self.DEFINED_SCALE_FACTORS, self.scale_factor) - 1, 0)] / rows[1]
