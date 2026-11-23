@@ -27,6 +27,8 @@ class FabricDataWarehouse(BaseEngine):
         SQL endpoint hostname for the Fabric Data Warehouse.
     schema_name : str
         Name of the warehouse schema used for benchmark tables.
+    allow_destructive_reset : bool, optional
+        Explicitly dedicate the target to destructive benchmark resets.
 
     Notes
     -----
@@ -71,6 +73,7 @@ class FabricDataWarehouse(BaseEngine):
         warehouse_name: str,
         warehouse_server: str,
         schema_name: str,
+        allow_destructive_reset: bool = False,
     ):
         """
         Parameters
@@ -82,7 +85,7 @@ class FabricDataWarehouse(BaseEngine):
         schema_name : str
             The name of the schema to use within the warehouse.
         """
-        super().__init__()
+        super().__init__(allow_destructive_reset=allow_destructive_reset)
 
         if " " in warehouse_name:
             raise ValueError("`warehouse_name` attribute should not contain spaces.")
@@ -225,9 +228,14 @@ class FabricDataWarehouse(BaseEngine):
             message_text = cls._format_odbc_messages(messages)
             raise FabricDataWarehouseQueryCancelledError(f"Fabric Data Warehouse query was cancelled: {message_text}")
 
-    def create_schema_if_not_exists(self, drop_before_create: bool = True):
+    def create_schema_if_not_exists(self, drop_before_create: bool = False, *, protected_uris: Sequence[str] = ()):
+        if drop_before_create:
+            self.validate_storage_reset(protected_uris)
+
         from sqlalchemy import text
 
+        schema_reference = f"[{self.schema_name.replace(']', ']]')}]"
+        schema_literal = self.schema_name.replace("'", "''")
         with self._connection_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
             if drop_before_create:
                 objects_df = self.execute_sql_query(
@@ -238,20 +246,22 @@ class FabricDataWarehouse(BaseEngine):
                     FROM sys.objects o
                     JOIN sys.schemas s ON o.schema_id = s.schema_id
                     WHERE o.type IN ('U', 'V')
-                    AND s.name = '{self.schema_name}'
+                    AND s.name = '{schema_literal}'
                     """,
                     return_data=True,
                 )
 
                 for _, row in objects_df.iterrows():
+                    object_reference = f"{schema_reference}.[{row['ObjectName'].replace(']', ']]')}]"
                     if row["ObjectType"] == "USER_TABLE":
-                        connection.execute(text(f"DROP TABLE IF EXISTS {self.schema_name}.{row['ObjectName']}"))
+                        connection.execute(text(f"DROP TABLE IF EXISTS {object_reference}"))
                     elif row["ObjectType"] == "VIEW":
-                        connection.execute(text(f"DROP VIEW IF EXISTS {self.schema_name}.{row['ObjectName']}"))
+                        connection.execute(text(f"DROP VIEW IF EXISTS {object_reference}"))
 
-                connection.execute(text(f"DROP SCHEMA IF EXISTS {self.schema_name}"))
+                connection.execute(text(f"DROP SCHEMA IF EXISTS {schema_reference}"))
 
-            connection.execute(text(f"CREATE SCHEMA {self.schema_name}"))
+            create_statement = f"CREATE SCHEMA {schema_reference}".replace("'", "''")
+            connection.execute(text(f"IF SCHEMA_ID(N'{schema_literal}') IS NULL EXEC(N'{create_statement}')"))
 
     def _create_empty_table(self, table_name: Optional[str], ddl: str):
         self.execute_sql_query(ddl)

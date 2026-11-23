@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Optional, Sequence
 
+from ..utils.storage_reset import validate_metadata_storage
 from .resources.databricks_pricing import (
     DatabricksPricingError,
     estimate_azure_spark_cost,
@@ -36,6 +37,8 @@ class DatabricksSpark(Spark):
         Deprecated compatibility option for post-load column statistics.
     tblproperties : dict, optional
         Delta table properties added to table creation statements.
+    allow_destructive_reset : bool, optional
+        Explicitly dedicate the target to destructive benchmark resets.
 
     Notes
     -----
@@ -61,6 +64,7 @@ class DatabricksSpark(Spark):
         cost_per_hour: Optional[float] = None,
         compute_stats_all_cols: bool = False,
         tblproperties: Optional[dict] = None,
+        allow_destructive_reset: bool = False,
     ):
         super().__init__(
             catalog_name=catalog_name,
@@ -69,6 +73,7 @@ class DatabricksSpark(Spark):
             spark_measure_telemetry=spark_measure_telemetry,
             compute_stats_all_cols=compute_stats_all_cols,
             tblproperties=tblproperties,
+            allow_destructive_reset=allow_destructive_reset,
         )
 
         runtime_version = self.spark.conf.get(
@@ -204,13 +209,19 @@ class DatabricksSpark(Spark):
             }
         )
 
-    def create_schema_if_not_exists(self, drop_before_create: bool = True):
+    def create_schema_if_not_exists(self, drop_before_create: bool = False, *, protected_uris: Sequence[str] = ()):
         location_str = (
             f"{'MANAGED ' if self.unity_catalog else ''}LOCATION '{self.schema_uri}'"
             if self.schema_uri is not None
             else ""
         )
         if drop_before_create:
-            self.spark.sql(f"DROP SCHEMA IF EXISTS {self.full_catalog_schema_reference} CASCADE")
-        self.spark.sql(f"CREATE SCHEMA IF NOT EXISTS {self.full_catalog_schema_reference} {location_str}")
+            self.validate_storage_reset(protected_uris)
+            if self._validate_existing_schema_storage(protected_uris):
+                self.spark.sql(f"DROP SCHEMA IF EXISTS {self.full_catalog_schema_reference} CASCADE")
+        exists_clause = "" if drop_before_create else " IF NOT EXISTS"
+        self.spark.sql(f"CREATE SCHEMA{exists_clause} {self.full_catalog_schema_reference} {location_str}")
+        if drop_before_create:
+            details = self.spark.sql(f"DESCRIBE SCHEMA EXTENDED {self.full_catalog_schema_reference}").collect()
+            validate_metadata_storage(details, protected_uris)
         self.spark.sql(f"USE {self.full_catalog_schema_reference}")

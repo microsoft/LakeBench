@@ -4,6 +4,7 @@ from typing import Mapping, Optional, Sequence
 
 import tenacity
 
+from ..utils.storage_reset import validate_metadata_storage
 from .base import BaseEngine
 
 
@@ -30,6 +31,8 @@ class Spark(BaseEngine):
         Deprecated compatibility option for post-load column statistics.
     tblproperties : dict, optional
         Delta table properties added to table creation statements.
+    allow_destructive_reset : bool, optional
+        Explicitly dedicate the target to destructive benchmark resets.
     """
 
     SQLGLOT_DIALECT = "spark"
@@ -49,6 +52,7 @@ class Spark(BaseEngine):
         cost_per_hour: Optional[float] = None,
         compute_stats_all_cols: bool = False,
         tblproperties: Optional[dict] = None,
+        allow_destructive_reset: bool = False,
     ):
         """
         Parameters
@@ -72,7 +76,7 @@ class Spark(BaseEngine):
                 This parameter will be removed in a future release.
             Whether to compute statistics for all columns after each table is loaded.
         """
-        super().__init__(schema_or_working_directory_uri=schema_uri)
+        super().__init__(schema_or_working_directory_uri=schema_uri, allow_destructive_reset=allow_destructive_reset)
 
         if compute_stats_all_cols:
             import warnings
@@ -190,14 +194,16 @@ class Spark(BaseEngine):
         ),
         stop=tenacity.stop_after_attempt(2),
     )
-    def create_schema_if_not_exists(self, drop_before_create: bool = True):
+    def create_schema_if_not_exists(self, drop_before_create: bool = False, *, protected_uris: Sequence[str] = ()):
         """
         Prepare an empty schema in the lakehouse.
 
         Parameters
         ----------
-        drop_before_create : bool, default True
-            Whether to drop the schema before creating it if it already exists.
+        drop_before_create : bool, default False
+            Request a reset of an explicitly authorized dedicated schema.
+        protected_uris : sequence of str, optional
+            Input/result paths that must not overlap the reset location.
 
         Notes
         -----
@@ -207,9 +213,33 @@ class Spark(BaseEngine):
         location_str = f"LOCATION '{self.schema_uri}'" if self.schema_uri is not None else ""
 
         if drop_before_create:
-            self.spark.sql(f"DROP SCHEMA IF EXISTS {self.full_catalog_schema_reference} CASCADE")
-        self.spark.sql(f"CREATE SCHEMA IF NOT EXISTS {self.full_catalog_schema_reference} {location_str}")
+            self.validate_storage_reset(protected_uris)
+            if self._validate_existing_schema_storage(protected_uris):
+                self.spark.sql(f"DROP SCHEMA IF EXISTS {self.full_catalog_schema_reference} CASCADE")
+        exists_clause = "" if drop_before_create else " IF NOT EXISTS"
+        self.spark.sql(f"CREATE SCHEMA{exists_clause} {self.full_catalog_schema_reference} {location_str}")
+        if drop_before_create:
+            details = self.spark.sql(f"DESCRIBE SCHEMA EXTENDED {self.full_catalog_schema_reference}").collect()
+            validate_metadata_storage(details, protected_uris)
         self.spark.sql(f"USE {self.full_catalog_schema_reference}")
+
+    def _validate_existing_schema_storage(self, protected_uris: Sequence[str]) -> bool:
+        catalog = f" IN `{self.catalog_name}`" if self.catalog_name else ""
+        schemas = self.spark.sql(f"SHOW SCHEMAS{catalog}").collect()
+        if not any(str(row[0]).casefold() == self.schema_name.casefold() for row in schemas):
+            return False
+        details = self.spark.sql(f"DESCRIBE SCHEMA EXTENDED {self.full_catalog_schema_reference}").collect()
+        validate_metadata_storage(details, protected_uris)
+        tables = self.spark.sql(f"SHOW TABLES IN {self.full_catalog_schema_reference}").collect()
+        for row in tables:
+            if row[2]:  # Temporary views are not owned by the persisted schema.
+                continue
+            table = str(row[1]).replace("`", "``")
+            details = self.spark.sql(
+                f"DESCRIBE TABLE EXTENDED {self.full_catalog_schema_reference}.`{table}`"
+            ).collect()
+            validate_metadata_storage(details, protected_uris, allow_view=True)
+        return True
 
     def _create_empty_table(self, table_name: Optional[str], ddl: str):
         """

@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 
 import fsspec
 
+from ..utils.storage_reset import local_storage_path, validate_reset_path, validate_reset_schema
+
 
 class MissingDependenciesError(ImportError):
     """Raised when an engine is constructed without the packages its extra installs."""
@@ -25,6 +27,8 @@ class BaseEngine(ABC):
         Base URI used to store Delta tables.
     storage_options : dict, optional
         Filesystem credentials and options passed to storage clients.
+    allow_destructive_reset : bool, optional
+        Explicitly dedicate the target to destructive benchmark resets.
 
     Methods
     -------
@@ -90,7 +94,12 @@ class BaseEngine(ABC):
             f"{cls.__name__} requires {packages}, which {verb} not installed. Install with {hint}."
         )
 
-    def __init__(self, schema_or_working_directory_uri: str = None, storage_options: Optional[dict[str, Any]] = None):
+    def __init__(
+        self,
+        schema_or_working_directory_uri: str = None,
+        storage_options: Optional[dict[str, Any]] = None,
+        allow_destructive_reset: bool = False,
+    ):
         """
         Parameters
         ----------
@@ -100,6 +109,9 @@ class BaseEngine(ABC):
             this serves as the root schema path where tables are created.
         storage_options : dict, optional
             A dictionary of storage options to pass to the engine for filesystem access.
+        allow_destructive_reset : bool, default False
+            Acknowledge that the configured path/schema is dedicated disposable
+            benchmark storage. Root and overlap guards still apply.
 
         Raises
         ------
@@ -113,10 +125,9 @@ class BaseEngine(ABC):
         self.cost_per_hour: Optional[float] = None
         self.extended_engine_metadata: dict[str, str] = {}
         self.storage_options: dict[str, Any] = storage_options if storage_options is not None else {}
+        self.allow_destructive_reset = allow_destructive_reset
         self.schema_or_working_directory_uri: str = (
-            schema_or_working_directory_uri.replace("file:///", "").replace(chr(92), "/")
-            if schema_or_working_directory_uri
-            else None
+            local_storage_path(schema_or_working_directory_uri) if schema_or_working_directory_uri else None
         )
 
         self.runtime = self._detect_runtime() if getattr(self, "runtime", None) is None else self.runtime
@@ -417,11 +428,33 @@ class BaseEngine(ABC):
         """
         raise NotImplementedError(f"{type(self).__name__} does not support analyze_table().")
 
-    def create_schema_if_not_exists(self, drop_before_create: bool = True):
+    def validate_storage_reset(self, protected_uris: Sequence[str] = ()) -> None:
+        """Validate consent and the target before any destructive storage/SQL operation."""
+        if getattr(self, "allow_destructive_reset", False) is not True:
+            raise ValueError(
+                "Benchmark loading/reset requires allow_destructive_reset=True on the engine. "
+                "Use only a dedicated disposable benchmark path/schema, separate from input and results. "
+                "Query-only runs do not require reset consent."
+            )
+        schema_name = getattr(self, "schema_name", None)
+        if schema_name is not None:
+            validate_reset_schema(schema_name, getattr(self, "catalog_name", None))
+        target = self.schema_or_working_directory_uri
+        if target is not None or schema_name is None:
+            validate_reset_path(target, protected_uris)
+        schema_uri = getattr(self, "schema_uri", None)
+        if schema_uri is not None and schema_uri != target:
+            validate_reset_path(schema_uri, protected_uris)
+
+    def create_schema_if_not_exists(self, drop_before_create: bool = False, *, protected_uris: Sequence[str] = ()):
+        """Create storage without deleting it unless an explicitly authorized reset is requested."""
         if drop_before_create:
-            if self.fs.exists(self.schema_or_working_directory_uri):
-                self.fs.rm(self.schema_or_working_directory_uri, True)
-            self.fs.mkdir(self.schema_or_working_directory_uri)
+            self.validate_storage_reset(protected_uris)
+        if self.fs.exists(self.schema_or_working_directory_uri):
+            if not drop_before_create:
+                return
+            self.fs.rm(self.schema_or_working_directory_uri, True)
+        self.fs.mkdir(self.schema_or_working_directory_uri)
 
     def _convert_generic_to_specific_schema(self, generic_schema: list):
         """

@@ -22,6 +22,8 @@ class SynapseSpark(Spark):
         ``cost_per_vcore_hour``.
     tblproperties : dict, optional
         Delta table properties added to table creation statements.
+    allow_destructive_reset : bool, optional
+        Explicitly dedicate the target to destructive benchmark resets.
 
     Notes
     -----
@@ -38,6 +40,7 @@ class SynapseSpark(Spark):
         cost_per_vcore_hour: Optional[float] = None,
         cost_per_hour: Optional[float] = None,
         tblproperties: Optional[dict] = None,
+        allow_destructive_reset: bool = False,
     ):
         """
         Parameters
@@ -66,6 +69,7 @@ class SynapseSpark(Spark):
             cost_per_hour=cost_per_hour,
             compute_stats_all_cols=False,
             tblproperties=tblproperties,
+            allow_destructive_reset=allow_destructive_reset,
         )
 
         if self.runtime != "synapse":

@@ -11,6 +11,7 @@ def _uninitialized_engine(engine_class):
     engine.operating_system = "linux"
     engine.catalog_name = None
     engine.schema_name = None
+    engine.allow_destructive_reset = True
     engine.get_total_cores = lambda: 1
     engine.get_compute_size = lambda: "test"
     return engine

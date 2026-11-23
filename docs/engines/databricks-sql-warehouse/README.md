@@ -28,8 +28,12 @@ engine = DatabricksSQLWarehouse(
     catalog_name="main",
     schema_name="lakebench",
     access_token=os.environ["DATABRICKS_TOKEN"],
+    allow_destructive_reset=True,
 )
 ```
+
+The whole schema and its contents must be dedicated disposable output, separate
+from input/results. Read the [shared reset boundary](../README.md#destructive-reset-boundary-compatibility-change).
 
 ## Configuration
 

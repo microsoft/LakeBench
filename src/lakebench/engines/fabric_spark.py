@@ -29,6 +29,8 @@ class FabricSpark(Spark):
         Deprecated alias for ``collect_stats_on_write``.
     tblproperties : dict, optional
         Delta table properties added to table creation statements.
+    allow_destructive_reset : bool, optional
+        Explicitly dedicate the target to destructive benchmark resets.
 
     Notes
     -----
@@ -54,6 +56,7 @@ class FabricSpark(Spark):
         collect_stats_on_write: bool = True,
         compute_stats_all_cols: Optional[bool] = None,
         tblproperties: Optional[dict] = None,
+        allow_destructive_reset: bool = False,
     ):
         """
         Parameters
@@ -89,6 +92,7 @@ class FabricSpark(Spark):
             cost_per_hour=cost_per_hour,
             compute_stats_all_cols=False,
             tblproperties=tblproperties,
+            allow_destructive_reset=allow_destructive_reset,
         )
 
         self.collect_stats_on_write = collect_stats_on_write

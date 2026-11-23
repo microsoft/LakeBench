@@ -365,7 +365,9 @@ class _LoadAndQuery(BaseBenchmark):
           clauses (e.g., ``USING delta``) automatically, so alternate DDL files do not
           need to include them.
         """
-        self.engine.create_schema_if_not_exists(drop_before_create=True)
+        self.engine.create_schema_if_not_exists(
+            drop_before_create=True, protected_uris=self._storage_reset_protected_uris()
+        )
         self.engine.create_external_location(self.input_parquet_folder_uri)
 
         ddl, from_dialect = self._resolve_ddl()
@@ -473,6 +475,7 @@ class _LoadAndQuery(BaseBenchmark):
         if inspect.currentframe().f_back.f_code.co_name not in ("run", "_run_load_and_query"):
             self.mode = "load"
 
+        self._validate_storage_reset()
         if self.engine.SUPPORTS_SCHEMA_PREP:
             self._prepare_schema()
         for table_name in self.TABLE_REGISTRY:

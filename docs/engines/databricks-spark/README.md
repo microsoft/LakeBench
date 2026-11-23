@@ -24,9 +24,13 @@ from lakebench.engines import DatabricksSpark
 engine = DatabricksSpark(
     catalog_name="main",
     schema_name="lakebench",
-    schema_uri="abfss://container@account.dfs.core.windows.net/lakebench" #optional
+    schema_uri="abfss://container@account.dfs.core.windows.net/lakebench",  # optional
+    allow_destructive_reset=True,
 )
 ```
+
+The whole schema and its contents must be dedicated disposable output, separate
+from input/results. Read the [shared reset boundary](../README.md#destructive-reset-boundary-compatibility-change).
 
 Use `s3://...` on AWS or `gs://...` on GCP.
 
