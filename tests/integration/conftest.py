@@ -6,7 +6,10 @@ per pytest session regardless of how many engine tests consume it.
 
 Helpers
 -------
-report_and_assert(results, benchmark_name, engine_label, run_exception=None)
+expected_workload(BenchmarkCls, run_mode)
+    Declares the complete default workload for the requested benchmark mode.
+
+report_and_assert(results, benchmark_name, engine_label, ..., expected_results=...)
     Unified pass/fail reporting used by every engine test file.
 
 run_benchmark(engine, BenchmarkCls, input_dir, run_mode, **kwargs)
@@ -25,6 +28,7 @@ from __future__ import annotations
 import datetime
 import pathlib
 import warnings
+from collections import Counter
 
 import pytest
 
@@ -41,18 +45,83 @@ _RESULTS: list[dict] = []
 # ---------------------------------------------------------------------------
 
 
-def report_and_assert(results, benchmark_name: str, engine_label: str, run_exception=None, min_pass_rate: float = 0.0):
-    """Print a run summary, emit warnings on partial failures, and assert
-    all table loads succeed and query/task pass rate meets *min_pass_rate*.
+def expected_workload(BenchmarkCls, run_mode: str):
+    """Return expected (phase, sub_phase, test_item, iteration) keys.
+
+    This describes the default full query/table selection, without optional
+    load optimization or analysis. Custom runs must declare their own keys.
+    """
+    steps = []
+    if BenchmarkCls.__name__ == "ELTBench":
+        if run_mode != "light":
+            raise ValueError(f"No ELTBench integration workload declared for mode {run_mode!r}.")
+        steps.extend(
+            ("Read parquet, write delta (x5)", None, table)
+            for table in ("store_sales", "date_dim", "store", "item", "customer")
+        )
+        steps.append(("Create fact table", None, "total_sales_fact"))
+        steps.extend([("Merge 0.1% into fact table (3x)", None, "total_sales_fact")] * 3)
+        steps.extend(
+            (phase, None, "total_sales_fact")
+            for phase in ("OPTIMIZE", "VACUUM", "Ad-hoc query (small result aggregation)")
+        )
+    else:
+        if run_mode not in ("load", "query", "power_test", "load_and_query"):
+            raise ValueError(f"No integration workload declared for mode {run_mode!r}.")
+        if run_mode in ("load", "load_and_query"):
+            steps.extend(("Load", "load", table) for table in BenchmarkCls.TABLE_REGISTRY)
+        if run_mode in ("query", "power_test", "load_and_query"):
+            steps.extend(("Query", None, query) for query in BenchmarkCls.QUERY_REGISTRY)
+
+    occurrences = Counter()
+    expected = []
+    for step in steps:
+        occurrences[step] += 1
+        expected.append((*step, occurrences[step]))
+    return expected
+
+
+def report_and_assert(
+    results,
+    benchmark_name: str,
+    engine_label: str,
+    run_exception=None,
+    *,
+    expected_results,
+    min_pass_rate: float = 0.0,
+):
+    """Require a complete, uninterrupted workload before checking pass rate.
 
     min_pass_rate=0.0 (default) — at least one step must succeed (⚠️ engines).
     min_pass_rate=1.0           — every step must succeed        (✅ engines).
 
-    Works for both load-and-query benchmarks (TPC-H, TPC-DS, ClickBench) and
-    task-based benchmarks (ELTBench).
+    All Load-phase results must succeed, independently of the query/task threshold.
+    Expected keys include phase, sub_phase, test_item, and iteration so repeated
+    tasks are distinguished from duplicate results.
     """
+    expected = Counter(expected_results)
+    if not expected or any(count != 1 for count in expected.values()):
+        raise ValueError("expected_results must contain nonempty, unique workload keys.")
+    actual = Counter((r["phase"], r["sub_phase"], r["test_item"], r["iteration"]) for r in results)
+    workload_errors = []
+    missing = list((expected - actual).elements())
+    extra = list((actual - expected).elements())
+    if missing:
+        workload_errors.append(f"missing results: {missing}")
+    if extra:
+        workload_errors.append(f"unexpected or duplicate results: {extra}")
+
     load_results = [r for r in results if r["phase"] == "Load"]
     query_results = [r for r in results if r["phase"] == "Query"]
+
+    def _assert_complete():
+        if run_exception is not None:
+            pytest.fail(
+                f"{benchmark_name} [{engine_label}]: run aborted: "
+                f"{type(run_exception).__name__}: {str(run_exception)[:200]}"
+            )
+        if workload_errors:
+            pytest.fail(f"{benchmark_name} [{engine_label}]: incomplete workload: {'; '.join(workload_errors)}")
 
     def _assert_rate(passed, total, unit):
         if total == 0:
@@ -67,8 +136,8 @@ def report_and_assert(results, benchmark_name: str, engine_label: str, run_excep
         else:
             assert len(passed) > 0, f"{benchmark_name} [{engine_label}]: ALL {total} {unit} failed."
 
-    # ELTBench: no Load/Query phases — treat every result as a "task"
-    if not load_results and not query_results and (results or benchmark_name == "ELTBench"):
+    # ELTBench uses task-specific phase names instead of Load/Query.
+    if benchmark_name == "ELTBench":
         task_results = results
         passed = [r for r in task_results if r["success"]]
         failed = [r for r in task_results if not r["success"]]
@@ -78,7 +147,7 @@ def report_and_assert(results, benchmark_name: str, engine_label: str, run_excep
         print(f"  Tasks : {len(passed)}/{len(task_results)} passed, {len(failed)} failed")
         for r in failed:
             print(f"    x {r['test_item']} ({r['phase']}): {r['error_message'][:120]}")
-        if run_exception:
+        if run_exception is not None:
             print(f"  [WARN] raised before completion: {type(run_exception).__name__}: {str(run_exception)[:200]}")
         print(f"{'=' * 60}")
 
@@ -90,16 +159,15 @@ def report_and_assert(results, benchmark_name: str, engine_label: str, run_excep
                 "passed": len(passed),
                 "total": len(task_results),
                 "failed": [{"name": r["test_item"], "phase": r["phase"], "error": r["error_message"]} for r in failed],
-                "run_exception": str(run_exception) if run_exception else None,
+                "run_exception": f"{type(run_exception).__name__}: {run_exception}"
+                if run_exception is not None
+                else None,
+                "workload_errors": workload_errors,
                 "timestamp": datetime.datetime.utcnow().isoformat(),
             }
         )
 
-        if len(task_results) == 0 and run_exception is not None:
-            pytest.fail(
-                f"{benchmark_name} [{engine_label}]: engine crashed before any tasks ran: "
-                f"{type(run_exception).__name__}: {str(run_exception)[:200]}"
-            )
+        _assert_complete()
 
         if failed:
             warnings.warn(
@@ -125,7 +193,7 @@ def report_and_assert(results, benchmark_name: str, engine_label: str, run_excep
     print(f"  Query : {len(passed)}/{len(query_results)} passed, {len(failed)} failed")
     for r in failed:
         print(f"    x {r['test_item']}: {r['error_message'][:120]}")
-    if run_exception:
+    if run_exception is not None:
         print(f"  [WARN] raised before completion: {type(run_exception).__name__}: {str(run_exception)[:200]}")
     print(f"{'=' * 60}")
 
@@ -138,21 +206,18 @@ def report_and_assert(results, benchmark_name: str, engine_label: str, run_excep
             "total": len(query_results),
             "failed": [{"name": r["test_item"], "phase": "Query", "error": r["error_message"]} for r in failed],
             "load_failed": [{"name": r["test_item"], "error": r["error_message"]} for r in lf],
-            "run_exception": str(run_exception) if run_exception else None,
+            "run_exception": f"{type(run_exception).__name__}: {run_exception}" if run_exception is not None else None,
+            "workload_errors": workload_errors,
             "timestamp": datetime.datetime.utcnow().isoformat(),
         }
     )
+
+    _assert_complete()
 
     if lf:
         pytest.fail(
             f"{benchmark_name} [{engine_label}]: {len(lf)} of {len(load_results)} tables failed to load. "
             f"First error: {lf[0]['error_message'][:200]}"
-        )
-
-    if len(query_results) == 0 and run_exception is not None:
-        pytest.fail(
-            f"{benchmark_name} [{engine_label}]: engine crashed before any queries ran: "
-            f"{type(run_exception).__name__}: {str(run_exception)[:200]}"
         )
 
     if failed:
@@ -278,9 +343,12 @@ def _render_engine_report(engine_label: str, records: list) -> str:
         failed = r.get("failed", [])
         lf = r.get("load_failed", [])
         exc_str = r.get("run_exception")
+        workload_errors = r.get("workload_errors", [])
 
         rate = passed / total if total > 0 else 0.0
         icon = "✅" if rate == 1.0 else ("⚠️" if rate > 0 else "❌")
+        if exc_str or workload_errors or lf:
+            icon = "❌"
 
         lines += [
             f"## {bm}",
@@ -317,6 +385,14 @@ def _render_engine_report(engine_label: str, records: list) -> str:
         if exc_str:
             lines += [
                 f"> ⚠️ Run terminated early: `{exc_str[:300]}`",
+                "",
+            ]
+
+        if workload_errors:
+            lines += [
+                "### Incomplete workload",
+                "",
+                *[f"- {error}" for error in workload_errors],
                 "",
             ]
 

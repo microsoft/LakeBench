@@ -8,7 +8,7 @@ Run with:
 
 import pytest
 
-from tests.integration.conftest import report_and_assert, run_benchmark
+from tests.integration.conftest import expected_workload, report_and_assert, run_benchmark
 
 pytest.importorskip("polars", reason="requires lakebench[polars] extra")
 pytest.importorskip("deltalake", reason="requires lakebench[polars] extra")
@@ -25,7 +25,9 @@ def test_tpch_polars(tpch_parquet_dir, tmp_path):
     from lakebench.benchmarks import TPCH
 
     results, exc = run_benchmark(_engine(tmp_path, "tpch"), TPCH, tpch_parquet_dir, "load_and_query", scale_factor=0.1)
-    report_and_assert(results, "TPC-H", "Polars", exc)
+    report_and_assert(
+        results, "TPC-H", "Polars", exc, expected_results=expected_workload(TPCH, "load_and_query"), min_pass_rate=0.0
+    )
 
 
 @pytest.mark.integration
@@ -35,7 +37,9 @@ def test_tpcds_polars(tpcds_parquet_dir, tmp_path):
     results, exc = run_benchmark(
         _engine(tmp_path, "tpcds"), TPCDS, tpcds_parquet_dir, "load_and_query", scale_factor=0.1
     )
-    report_and_assert(results, "TPC-DS", "Polars", exc)
+    report_and_assert(
+        results, "TPC-DS", "Polars", exc, expected_results=expected_workload(TPCDS, "load_and_query"), min_pass_rate=0.0
+    )
 
 
 @pytest.mark.integration
@@ -43,7 +47,14 @@ def test_clickbench_polars(clickbench_parquet_dir, tmp_path):
     from lakebench.benchmarks import ClickBench
 
     results, exc = run_benchmark(_engine(tmp_path, "clickbench"), ClickBench, clickbench_parquet_dir, "load_and_query")
-    report_and_assert(results, "ClickBench", "Polars", exc)
+    report_and_assert(
+        results,
+        "ClickBench",
+        "Polars",
+        exc,
+        expected_results=expected_workload(ClickBench, "load_and_query"),
+        min_pass_rate=0.0,
+    )
 
 
 @pytest.mark.integration
@@ -51,4 +62,6 @@ def test_eltbench_polars(tpcds_parquet_dir, tmp_path):
     from lakebench.benchmarks import ELTBench
 
     results, exc = run_benchmark(_engine(tmp_path, "eltbench"), ELTBench, tpcds_parquet_dir, "light", scale_factor=0.1)
-    report_and_assert(results, "ELTBench", "Polars", exc)
+    report_and_assert(
+        results, "ELTBench", "Polars", exc, expected_results=expected_workload(ELTBench, "light"), min_pass_rate=0.0
+    )
