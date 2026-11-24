@@ -23,93 +23,102 @@ def _has_spark_context(engine):
         return False
 
 
-@contextmanager
-def timer(
-    phase: str = "Elapsed time",
-    test_item: str = "",
-    engine: str = None,
-    sub_phase: str = None,
-    progress: str = None,
-):
-    if not hasattr(timer, "results"):
-        timer.results = []
+class Timer:
+    """Collect timings for one owner, with iterations scoped to pending results.
 
-    iteration = (
-        sum(1 for result in timer.results if result[0] == phase and result[1] == test_item and result[2] == sub_phase)
-        + 1
-    )
-    timer_label = _format_timer_label(phase, test_item, sub_phase, progress)
+    Use sequentially: overlapping contexts or clearing/posting during an active
+    context on the same instance are not supported. Separate instances isolate
+    records, but do not make a shared engine or Spark session concurrency-safe.
+    """
 
-    class TimerContext:
-        def __init__(self, label: str, iteration: int):
-            self.execution_telemetry = {}
-            self.sql_text = None
-            self.context_decorator = f"{label} [i:{iteration}]"
+    def __init__(self):
+        self.results = []
 
-    timer_context = TimerContext(timer_label, iteration)
+    def clear_results(self):
+        self.results = []
 
-    has_sc = _has_spark_context(engine)
-    if has_sc:
-        engine.spark.sparkContext.setJobDescription(timer_context.context_decorator)
-        if engine.spark_measure_telemetry:
-            engine.capture_metrics.begin()
-            engine.spark.sparkContext.setLocalProperty("spark.scheduler.pool", "lakebench")
-
-    start = time.time()
-    start_datetime = datetime.now()
-    success = True
-    error_message = None
-    error_type = None
-
-    try:
-        yield timer_context
-    except Exception as e:
-        success = False
-        error_message = str(e)
-        error_type = type(e).__name__  # Capture the error type
-        logger.error("Error during %s... %s: %s", timer_label, error_type, error_message)
-
-    finally:
-        end = time.time()
-        duration = int((end - start) * 1000)
-        logger.info(
-            "%s%s: %.2f seconds",
-            timer_label,
-            f" [i:{iteration}]" if iteration > 1 else "",
-            duration / 1000,
-        )
-        # Set execution metadata to an empty dict if it is not set or was set to anything other than a dict
-        if not isinstance(timer_context.execution_telemetry, dict):
-            timer_context.execution_telemetry = {}
-
-        if has_sc:
-            engine.spark.sparkContext.setJobDescription(None)
-            if engine.spark_measure_telemetry:
-                engine.capture_metrics.end()
-                listener_metrics_agg = engine.capture_metrics.aggregate_stagemetrics_DF()
-                listener_metrics_dict = listener_metrics_agg.toPandas().iloc[0].to_dict()
-                listener_metrics_str_dict = {k: str(v) for k, v in listener_metrics_dict.items()}
-                timer_context.execution_telemetry.update(listener_metrics_str_dict)
-
-        timer.results.append(
-            (
-                phase,
-                test_item,
-                sub_phase,
-                start_datetime,
-                duration,
-                iteration,
-                success,
-                f"{error_type}: {error_message}" if error_message else "",
-                timer_context.execution_telemetry,
-                timer_context.sql_text if isinstance(timer_context.sql_text, str) else None,
+    @contextmanager
+    def __call__(
+        self,
+        phase: str = "Elapsed time",
+        test_item: str = "",
+        engine: str = None,
+        sub_phase: str = None,
+        progress: str = None,
+    ):
+        iteration = (
+            sum(
+                1 for result in self.results if result[0] == phase and result[1] == test_item and result[2] == sub_phase
             )
+            + 1
         )
+        timer_label = _format_timer_label(phase, test_item, sub_phase, progress)
+
+        class TimerContext:
+            def __init__(self, label: str, iteration: int):
+                self.execution_telemetry = {}
+                self.sql_text = None
+                self.context_decorator = f"{label} [i:{iteration}]"
+
+        timer_context = TimerContext(timer_label, iteration)
+
+        has_sc = _has_spark_context(engine)
+        if has_sc:
+            engine.spark.sparkContext.setJobDescription(timer_context.context_decorator)
+            if engine.spark_measure_telemetry:
+                engine.capture_metrics.begin()
+                engine.spark.sparkContext.setLocalProperty("spark.scheduler.pool", "lakebench")
+
+        start = time.perf_counter_ns()
+        start_datetime = datetime.now()
+        success = True
+        error_message = None
+        error_type = None
+
+        try:
+            yield timer_context
+        except Exception as e:
+            success = False
+            error_message = str(e)
+            error_type = type(e).__name__  # Capture the error type
+            logger.error("Error during %s... %s: %s", timer_label, error_type, error_message)
+
+        finally:
+            end = time.perf_counter_ns()
+            duration = (end - start) // 1_000_000
+            logger.info(
+                "%s%s: %.2f seconds",
+                timer_label,
+                f" [i:{iteration}]" if iteration > 1 else "",
+                duration / 1000,
+            )
+            # Set execution metadata to an empty dict if it is not set or was set to anything other than a dict
+            if not isinstance(timer_context.execution_telemetry, dict):
+                timer_context.execution_telemetry = {}
+
+            if has_sc:
+                engine.spark.sparkContext.setJobDescription(None)
+                if engine.spark_measure_telemetry:
+                    engine.capture_metrics.end()
+                    listener_metrics_agg = engine.capture_metrics.aggregate_stagemetrics_DF()
+                    listener_metrics_dict = listener_metrics_agg.toPandas().iloc[0].to_dict()
+                    listener_metrics_str_dict = {k: str(v) for k, v in listener_metrics_dict.items()}
+                    timer_context.execution_telemetry.update(listener_metrics_str_dict)
+
+            self.results.append(
+                (
+                    phase,
+                    test_item,
+                    sub_phase,
+                    start_datetime,
+                    duration,
+                    iteration,
+                    success,
+                    f"{error_type}: {error_message}" if error_message else "",
+                    timer_context.execution_telemetry,
+                    timer_context.sql_text if isinstance(timer_context.sql_text, str) else None,
+                )
+            )
 
 
-def _clear_results():
-    if hasattr(timer, "results"):
-        timer.results = []
-
-
-timer.clear_results = _clear_results
+timer = Timer()

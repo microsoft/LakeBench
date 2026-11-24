@@ -360,6 +360,16 @@ print(query_str)  # Shows final transpiled/customized query
 
 All engines now receive the same selected TPC source substitutions, with compatibility changes explicit and reviewable.
 
+## Timing and Result Ownership
+
+Each benchmark owns its timer. Constructing another benchmark, calling its `post_results()`, or clearing its timer cannot erase or reassign another benchmark's pending records. Use `benchmark.timer.results` to inspect pending timings and `benchmark.results` for posted rows. Iterations count matching phase, test item, and sub-phase entries in the pending records, restarting after posting or clearing, as before.
+
+Elapsed duration is measured with the monotonic high-resolution `time.perf_counter_ns()` clock and stored as integer milliseconds. `start_datetime` remains a wall-clock timestamp. Wall-clock adjustments therefore do not distort elapsed durations; the result tuple/schema, SQL text, failure recording, and execution telemetry are unchanged.
+
+Standalone usage remains supported via `from lakebench.utils.timer import timer`: `with timer(...)`, `timer.results`, and `timer.clear_results()` retain their callable API. This default timer no longer collects benchmark-owned records. For an independent collector, import and construct `Timer()` from the same module.
+
+**Concurrency limits:** use each benchmark/timer sequentially. Overlapping contexts, concurrent runs, and clearing or posting while that same timer is active are unsupported. Separate instances isolate their records but do not make shared engines concurrency-safe; a shared Spark session still has shared job descriptions and metrics collection.
+
 # 📬 Feedback / Contributions
 Got ideas? Found a bug? Want to contribute a benchmark or engine wrapper? PRs and issues are welcome!
 

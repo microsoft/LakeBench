@@ -167,7 +167,7 @@ pip install lakebench[duckdb,polars,tpch_datagen]
 
 ## Timer (`utils/timer.py`)
 
-`timer` is a context-manager function with a `.results` list attached. Use it inside benchmark `run()` implementations to time each phase/test item:
+Each benchmark owns a callable `Timer` instance with its own `.results` list and `.clear_results()` method. Use it inside benchmark `run()` implementations to time each phase/test item:
 
 ```python
 with self.timer(phase="load", test_item="q1", engine=self.engine) as t:
@@ -179,6 +179,10 @@ self.post_results()   # flush timer.results → self.results → optionally Delt
 ```
 
 Set `sql_text` *before* executing, so the statement is still recorded when the engine raises.
+
+Elapsed durations use `time.perf_counter_ns()`; `start_datetime` remains a wall-clock timestamp. Iterations count matching phase/test-item/sub-phase records still pending on that timer and restart after clearing or posting. The module-level `timer` remains available for standalone callers, but no longer collects benchmark timings. Use `benchmark.timer.results` for a benchmark's pending records, or create a separate `Timer()` for another owner.
+
+Use each timer and benchmark sequentially: overlapping contexts, concurrent runs, or clearing/posting while that same timer is active are unsupported. Distinct timer instances isolate records, not shared engine state; in particular, a shared Spark session's job descriptions and metrics collector are not concurrency-safe.
 
 ---
 
